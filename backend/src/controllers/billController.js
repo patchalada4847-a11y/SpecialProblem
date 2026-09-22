@@ -23,16 +23,17 @@ exports.getBills = async (req, res) => {
 };
 
 exports.createBill = async (req, res) => {
-  const { contract_id, month, year, water_unit, electric_unit, due_date } = req.body;
+  const { contract_id, month, year, water_unit, electric_unit, due_date } = req.body || {};
   const WATER_RATE = 18.00;
   const ELECTRIC_RATE = 8.00;
 
   try {
+    // ดึงสัญญาเช่าโดยค้นหาตาม contract_id
     const contractQuery = `
       SELECT c.contract_id, r.base_price 
       FROM m_contracts c 
       JOIN m_rooms r ON c.room_id = r.room_id 
-      WHERE c.contract_id = $1 AND c.status = 'active';
+      WHERE c.contract_id = $1;
     `;
     const contractResult = await db.query(contractQuery, [contract_id]);
 
@@ -40,9 +41,9 @@ exports.createBill = async (req, res) => {
       return res.status(404).json({ message: 'Active contract not found' });
     }
 
-    const rent_amount = parseFloat(contractResult.rows[0].base_price);
-    const water_amount = water_unit * WATER_RATE;
-    const electric_amount = electric_unit * ELECTRIC_RATE;
+    const rent_amount = parseFloat(contractResult.rows[0].base_price || 0);
+    const water_amount = (water_unit || 0) * WATER_RATE;
+    const electric_amount = (electric_unit || 0) * ELECTRIC_RATE;
     const total_amount = rent_amount + water_amount + electric_amount;
 
     const insertQuery = `
