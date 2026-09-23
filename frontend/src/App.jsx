@@ -8,6 +8,7 @@ import Rooms from './pages/Rooms';
 import Tenants from './pages/Tenants';
 import Bills from './pages/Bills';
 import TenantDashboard from './pages/TenantDashboard';
+import KYCApproval from './pages/KYCApproval'; // 1. เพิ่ม Import ตรงนี้
 
 // คอมโพเนนต์ช่วยเลือก Redirect ไปยัง Dashboard ตาม Role
 function RoleBasedRedirect() {
@@ -33,6 +34,7 @@ function App() {
             
             {/* Route สำหรับ Admin */}
             <Route path="dashboard" element={<Dashboard />} />
+            <Route path="kyc-approval" element={<KYCApproval />} /> {/* 2. เพิ่ม Route ตรงนี้ */}
             <Route path="rooms" element={<Rooms />} />
             <Route path="tenants" element={<Tenants />} />
             <Route path="bills" element={<Bills />} />

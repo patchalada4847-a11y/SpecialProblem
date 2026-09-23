@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { UserPlus, Building, Lock, User, Phone, Type } from 'lucide-react';
+import { UserPlus, Building, UploadCloud, FileCheck } from 'lucide-react';
 import api from '../api/axios';
 
 export default function Register() {
@@ -10,20 +10,44 @@ export default function Register() {
     first_name: '',
     last_name: '',
     phone: '',
-    role: 'tenant'
+    role: 'tenant',
+    kyc_document: ''
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [fileName, setFileName] = useState('');
   const navigate = useNavigate();
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('ขนาดไฟล์ต้องไม่เกิน 5MB');
+      return;
+    }
+
+    setFileName(file.name);
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setForm((prev) => ({ ...prev, kyc_document: reader.result }));
+    };
+    reader.readAsDataURL(file);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (form.role === 'tenant' && !form.kyc_document) {
+      setError('กรุณาแนบรูปภาพเอกสารยืนยันตัวตนหรือสัญญาเช่า');
+      return;
+    }
+
     setError('');
     setLoading(true);
 
     try {
-      await api.post('/auth/register', form);
-      alert('ลงทะเบียนสำเร็จ สามารถเข้าสู่ระบบได้ทันที');
+      const res = await api.post('/auth/register', form);
+      alert(res.data.message || 'ลงทะเบียนสำเร็จ');
       navigate('/login');
     } catch (err) {
       setError(err.response?.data?.error || err.response?.data?.message || 'ไม่สามารถลงทะเบียนได้');
@@ -40,6 +64,7 @@ export default function Register() {
             <Building className="text-indigo-600" size={28} />
           </div>
           <h2 className="text-2xl font-bold text-gray-800">ลงทะเบียนเข้าใช้งาน</h2>
+          <p className="text-xs text-gray-500 mt-1">กรอกข้อมูลและแนบเอกสารเพื่อรอการอนุมัติ (KYC)</p>
         </div>
 
         {error && (
@@ -106,16 +131,22 @@ export default function Register() {
             />
           </div>
 
+          {/* อัปโหลดเอกสาร KYC */}
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">บทบาท (Role)</label>
-            <select
-              value={form.role}
-              onChange={(e) => setForm({ ...form, role: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="tenant">ผู้เช่า (Tenant)</option>
-              <option value="admin">ผู้ดูแลระบบ (Admin)</option>
-            </select>
+            <label className="block text-xs font-medium text-gray-700 mb-1">แนบเอกสารยืนยันตัวตน / ใบสัญญา</label>
+            <label className="border-2 border-dashed border-gray-300 hover:border-indigo-500 rounded-lg p-3 flex flex-col items-center justify-center cursor-pointer bg-gray-50 transition">
+              {fileName ? (
+                <div className="flex items-center gap-2 text-indigo-600 text-xs font-medium">
+                  <FileCheck size={16} /> {fileName}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-1 text-gray-500 text-xs">
+                  <UploadCloud size={20} className="text-gray-400" />
+                  <span>คลิกเพื่อเลือกไฟล์รูปภาพ</span>
+                </div>
+              )}
+              <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+            </label>
           </div>
 
           <button
@@ -124,7 +155,7 @@ export default function Register() {
             className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2.5 rounded-lg transition flex items-center justify-center gap-2 mt-2"
           >
             <UserPlus size={18} />
-            <span>{loading ? 'กำลังลงทะเบียน...' : 'สมัครสมาชิก'}</span>
+            <span>{loading ? 'กำลังส่งข้อมูล...' : 'ลงทะเบียนและส่งตรวจ KYC'}</span>
           </button>
         </form>
 

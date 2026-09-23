@@ -1,5 +1,5 @@
 import { Link, useNavigate, Outlet } from 'react-router-dom';
-import { Home, Users, KeyRound, Receipt, LogOut, Building, User } from 'lucide-react';
+import { Home, Users, KeyRound, Receipt, LogOut, Building, User, UserCheck } from 'lucide-react';
 
 export default function Layout() {
   const navigate = useNavigate();
@@ -14,6 +14,7 @@ export default function Layout() {
   // เมนูของ Admin
   const adminMenuItems = [
     { name: 'แดชบอร์ด', icon: Home, path: '/dashboard' },
+    { name: 'ตรวจสอบ KYC', icon: UserCheck, path: '/kyc-approval' },
     { name: 'จัดการห้องพัก', icon: KeyRound, path: '/rooms' },
     { name: 'จัดการผู้เช่า', icon: Users, path: '/tenants' },
     { name: 'การแจ้งชำระเงิน', icon: Receipt, path: '/bills' },

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Building, User, Edit2, X, FileText, CheckCircle, Clock } from 'lucide-react';
+import { Building, User, Edit2, X, FileText, CheckCircle, Clock, UploadCloud, Image as ImageIcon } from 'lucide-react';
 import api from '../api/axios';
 
 export default function TenantDashboard() {
@@ -9,9 +9,12 @@ export default function TenantDashboard() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [editForm, setEditForm] = useState({ first_name: '', last_name: '', phone: '' });
 
+  // จัดการอัปโหลดสลิป
+  const [uploadingBillId, setUploadingBillId] = useState(null);
+  const [selectedSlipModal, setSelectedSlipModal] = useState(null);
+
   const fetchData = async () => {
     try {
-      // แก้ไข Endpoint ให้ตรงกับ tenantRoutes.js (/tenant/me)
       const [profileRes, billsRes] = await Promise.all([
         api.get('/tenant/me'),
         api.get('/tenant/my-bills')
@@ -40,7 +43,6 @@ export default function TenantDashboard() {
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
     try {
-      // แก้ไข Endpoint ให้ตรงกับ tenantRoutes.js (/tenant/update-profile)
       await api.put('/tenant/update-profile', editForm);
       alert('แก้ไขข้อมูลส่วนตัวสำเร็จ');
       setShowEditModal(false);
@@ -48,6 +50,35 @@ export default function TenantDashboard() {
     } catch (err) {
       alert(err.response?.data?.error || 'ไม่สามารถแก้ไขข้อมูลได้');
     }
+  };
+
+  // จัดการแปลงไฟล์รูปเป็น Base64 แล้วส่งไปบันทึก
+  const handleFileChange = (e, billId) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('ขนาดไฟล์รูปต้องไม่เกิน 5MB');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      try {
+        setUploadingBillId(billId);
+        await api.post('/tenant/upload-slip', {
+          bill_id: billId,
+          slip_image: reader.result
+        });
+        alert('อัปโหลดสลิปสำเร็จ รอแอดมินตรวจสอบ');
+        fetchData();
+      } catch (err) {
+        alert(err.response?.data?.error || 'อัปโหลดสลิปไม่สำเร็จ');
+      } finally {
+        setUploadingBillId(null);
+      }
+    };
+    reader.readAsDataURL(file);
   };
 
   if (loading) return <p className="text-center py-8 text-gray-500">กำลังโหลดข้อมูลผู้เช่า...</p>;
@@ -108,8 +139,8 @@ export default function TenantDashboard() {
                 <th className="p-3">ค่าน้ำ</th>
                 <th className="p-3">ค่าไฟ</th>
                 <th className="p-3">ยอดรวม</th>
-                <th className="p-3">กำหนดชำระ</th>
                 <th className="p-3">สถานะ</th>
+                <th className="p-3">การแนบสลิป</th>
               </tr>
             </thead>
             <tbody>
@@ -121,7 +152,6 @@ export default function TenantDashboard() {
                     <td className="p-3">฿{Number(b.water_amount || 0).toLocaleString()} ({b.water_unit} หน่วย)</td>
                     <td className="p-3">฿{Number(b.electric_amount || 0).toLocaleString()} ({b.electric_unit} หน่วย)</td>
                     <td className="p-3 font-semibold text-gray-800">฿{Number(b.total_amount || 0).toLocaleString()}</td>
-                    <td className="p-3 text-xs text-gray-500">{b.due_date ? new Date(b.due_date).toLocaleDateString('th-TH') : '-'}</td>
                     <td className="p-3">
                       {b.payment_status === 'paid' ? (
                         <span className="flex items-center gap-1 text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full text-xs w-fit">
@@ -131,6 +161,35 @@ export default function TenantDashboard() {
                         <span className="flex items-center gap-1 text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full text-xs w-fit">
                           <Clock size={14} /> รอชำระ
                         </span>
+                      )}
+                    </td>
+                    <td className="p-3">
+                      {b.payment_status === 'paid' ? (
+                        <span className="text-gray-400 text-xs">เสร็จสิ้น</span>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg text-xs font-medium transition">
+                            <UploadCloud size={14} />
+                            <span>{uploadingBillId === b.bill_id ? 'กำลังส่ง...' : b.slip_image ? 'เปลี่ยนสลิป' : 'แนบสลิป'}</span>
+                            <input 
+                              type="file" 
+                              accept="image/*" 
+                              className="hidden" 
+                              disabled={uploadingBillId === b.bill_id}
+                              onChange={(e) => handleFileChange(e, b.bill_id)} 
+                            />
+                          </label>
+
+                          {b.slip_image && (
+                            <button
+                              onClick={() => setSelectedSlipModal(b.slip_image)}
+                              className="p-1.5 text-gray-500 hover:text-indigo-600 rounded-md transition"
+                              title="ดูสลิปที่แนบไว้"
+                            >
+                              <ImageIcon size={16} />
+                            </button>
+                          )}
+                        </div>
                       )}
                     </td>
                   </tr>
@@ -144,6 +203,27 @@ export default function TenantDashboard() {
           </table>
         </div>
       </div>
+
+      {/* Modal ดูภาพสลิป */}
+      {selectedSlipModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 space-y-4 shadow-2xl">
+            <div className="flex justify-between items-center border-b pb-2">
+              <h3 className="font-bold text-gray-800 text-sm">หลักฐานการโอนเงิน</h3>
+              <button onClick={() => setSelectedSlipModal(null)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
+            </div>
+            <div className="max-h-96 overflow-auto flex justify-center bg-gray-50 rounded-lg p-2">
+              <img src={selectedSlipModal} alt="Slip" className="max-w-full rounded-md shadow" />
+            </div>
+            <button 
+              onClick={() => setSelectedSlipModal(null)} 
+              className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-lg text-sm font-medium transition cursor-pointer"
+            >
+              ปิดหน้าต่าง
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Modal แก้ไขข้อมูลส่วนตัว */}
       {showEditModal && (
