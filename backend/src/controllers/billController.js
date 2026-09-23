@@ -7,6 +7,7 @@ exports.getBills = async (req, res) => {
         b.bill_id, b.month, b.year, b.rent_amount,
         b.water_unit, b.water_amount, b.electric_unit, b.electric_amount,
         b.total_amount, b.payment_status, b.due_date,
+        b.slip_image,
         r.room_number,
         u.first_name, u.last_name
       FROM t_bills b
@@ -42,8 +43,10 @@ exports.createBill = async (req, res) => {
     }
 
     const rent_amount = parseFloat(contractResult.rows[0].base_price || 0);
-    const water_amount = (water_unit || 0) * WATER_RATE;
-    const electric_amount = (electric_unit || 0) * ELECTRIC_RATE;
+    const parsedWater = Number(water_unit || 0);
+    const parsedElectric = Number(electric_unit || 0);
+    const water_amount = parsedWater * WATER_RATE;
+    const electric_amount = parsedElectric * ELECTRIC_RATE;
     const total_amount = rent_amount + water_amount + electric_amount;
 
     const insertQuery = `
@@ -58,7 +61,7 @@ exports.createBill = async (req, res) => {
 
     const result = await db.query(insertQuery, [
       contract_id, month, year, rent_amount,
-      water_unit, water_amount, electric_unit, electric_amount,
+      parsedWater, water_amount, parsedElectric, electric_amount,
       total_amount, due_date
     ]);
 

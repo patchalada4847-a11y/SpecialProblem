@@ -48,5 +48,10 @@ const { verifyToken } = require('../middleware/authMiddleware');
 router.get('/me', verifyToken, tenantController.getMyProfileAndContract);
 router.get('/my-bills', verifyToken, tenantController.getMyBills);
 router.put('/update-profile', verifyToken, tenantController.updateMyProfile);
+router.get('/available-tenants', verifyToken, tenantController.getAvailableTenants);
+router.post('/upload-slip', verifyToken, tenantController.uploadSlip);
+
+router.get('/pending-kyc', verifyToken, tenantController.getPendingKYC);
+router.post('/verify-kyc', verifyToken, tenantController.verifyKYC);
 
 module.exports = router;

@@ -104,3 +104,86 @@ exports.updateMyProfile = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+// ดึงรายชื่อผู้เช่าที่สมัครสมาชิกแล้ว (เฉพาะคนที่ยังไม่ได้ผูกห้อง หรือยังไม่มีสัญญา Active)
+exports.getAvailableTenants = async (req, res) => {
+  try {
+    const query = `
+      SELECT u.user_id, u.username, u.first_name, u.last_name, u.phone
+      FROM m_users u
+      WHERE u.role = 'tenant'
+        AND u.user_id NOT IN (
+          SELECT tenant_id FROM m_contracts WHERE status = 'active'
+        )
+      ORDER BY u.first_name ASC
+    `;
+    const result = await db.query(query);
+    res.json(result.rows || []);
+  } catch (error) {
+    console.error('Error in getAvailableTenants:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ผู้เช่าแนบสลิปโอนเงิน
+exports.uploadSlip = async (req, res) => {
+  try {
+    const userId = req.user?.user_id || req.user?.id;
+    const { bill_id, slip_image } = req.body;
+
+    if (!bill_id || !slip_image) {
+      return res.status(400).json({ error: 'ข้อมูลไม่ครบถ้วน (ต้องระบุ bill_id และ slip_image)' });
+    }
+
+    // ตรวจสอบว่าบิลนี้เป็นของสัญญาผู้เช่าคนนี้จริงไหม
+    const checkQuery = `
+      SELECT b.bill_id, b.payment_status 
+      FROM t_bills b
+      INNER JOIN m_contracts c ON b.contract_id = c.contract_id
+      WHERE b.bill_id = $1 AND c.tenant_id = $2
+    `;
+    const checkResult = await db.query(checkQuery, [bill_id, userId]);
+
+    if (checkResult.rows.length === 0) {
+      return res.status(403).json({ error: 'คุณไม่มีสิทธิ์อัปโหลดสลิปสำหรับบิลนี้' });
+    }
+
+    if (checkResult.rows[0].payment_status === 'paid') {
+      return res.status(400).json({ error: 'บิลนี้ได้รับการชำระเงินเรียบร้อยแล้ว' });
+    }
+
+    // อัปเดตรูปสลิป
+    await db.query('UPDATE t_bills SET slip_image = $1 WHERE bill_id = $2', [slip_image, bill_id]);
+
+    res.json({ message: 'แนบสลิปโอนเงินเรียบร้อยแล้ว รอผู้ดูแลระบบตรวจสอบ' });
+  } catch (error) {
+    console.error('Error in uploadSlip:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// ดึงรายชื่อผู้ใช้ที่รอการยืนยันตัวตน (KYC)
+exports.getPendingKYC = async (req, res) => {
+  try {
+    const result = await db.query(
+      `SELECT user_id, username, first_name, last_name, phone, status, kyc_document, created_at 
+       FROM m_users 
+       WHERE role = 'tenant' AND status = 'pending'
+       ORDER BY created_at DESC`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+// อนุมัติ หรือ ปฏิเสธ KYC
+exports.verifyKYC = async (req, res) => {
+  const { user_id, status } = req.body; // status: 'approved' หรือ 'rejected'
+  try {
+    await db.query('UPDATE m_users SET status = $1 WHERE user_id = $2', [status, user_id]);
+    res.json({ message: `ดำเนินการ${status === 'approved' ? 'อนุมัติ' : 'ปฏิเสธ'}เรียบร้อยแล้ว` });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};

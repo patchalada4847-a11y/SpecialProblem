@@ -2,7 +2,29 @@ const db = require('../config/db');
 
 exports.getRooms = async (req, res) => {
   try {
-    const result = await db.query('SELECT * FROM m_rooms ORDER BY room_number ASC');
+    const query = `
+      SELECT 
+        r.room_id,
+        r.room_number,
+        r.floor,
+        r.room_type,
+        r.base_price,
+        r.status,
+        c.contract_id,
+        c.start_date,
+        c.end_date,
+        c.deposit,
+        u.user_id AS tenant_id,
+        u.first_name,
+        u.last_name,
+        u.phone,
+        u.username
+      FROM m_rooms r
+      LEFT JOIN m_contracts c ON r.room_id = c.room_id AND c.status = 'active'
+      LEFT JOIN m_users u ON c.tenant_id = u.user_id
+      ORDER BY r.floor ASC, r.room_number ASC;
+    `;
+    const result = await db.query(query);
     res.json(result.rows);
   } catch (err) {
     res.status(500).json({ error: err.message });
