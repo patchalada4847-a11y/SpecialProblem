@@ -81,6 +81,64 @@ exports.updateTenantProfile = async (req, res) => {
   }
 };
 
+exports.getTenantDocuments = async (req, res) => {
+  const tenantId = Number(req.params.id);
+  if (!Number.isInteger(tenantId) || tenantId < 1) {
+    return res.status(400).json({ error: 'หมายเลขผู้เช่าไม่ถูกต้อง' });
+  }
+  try {
+    const [tenantResult, renewalResult] = await Promise.all([
+      db.query(
+        `SELECT user_id, first_name, last_name, username, kyc_document
+         FROM m_users WHERE user_id = $1 AND role = 'tenant'`,
+        [tenantId]
+      ),
+      db.query(
+        `SELECT rr.request_id, rr.contract_id, rr.proposed_end_date::text AS proposed_end_date,
+                rr.agreement_document, rr.signed_document, rr.status, rr.submitted_at, r.room_number
+         FROM m_contract_renewal_requests rr
+         JOIN m_contracts c ON c.contract_id = rr.contract_id
+         JOIN m_rooms r ON r.room_id = c.room_id
+         WHERE rr.tenant_id = $1
+         ORDER BY rr.submitted_at DESC`,
+        [tenantId]
+      )
+    ]);
+    if (!tenantResult.rows.length) return res.status(404).json({ error: 'ไม่พบข้อมูลผู้เช่า' });
+    res.json({
+      tenant: tenantResult.rows[0],
+      documents: [
+        ...(tenantResult.rows[0].kyc_document ? [{
+          id: `application-${tenantId}`,
+          title: 'เอกสารที่แนบตอนสมัคร',
+          submitted_at: null,
+          status: 'application',
+          document: tenantResult.rows[0].kyc_document
+        }] : []),
+        ...renewalResult.rows.flatMap((request) => [
+          ...(request.agreement_document ? [{
+            id: `renewal-draft-${request.request_id}`,
+            title: `ร่างสัญญาต่ออายุ · ห้อง ${request.room_number}`,
+            submitted_at: request.submitted_at,
+            status: request.status,
+            document: request.agreement_document
+          }] : []),
+          ...(request.signed_document ? [{
+            id: `renewal-signed-${request.request_id}`,
+            title: `สัญญาที่ผู้เช่าลงนามแล้ว · ห้อง ${request.room_number}`,
+            submitted_at: request.submitted_at,
+            status: request.status,
+            document: request.signed_document
+          }] : [])
+        ])
+      ]
+    });
+  } catch (error) {
+    console.error('Error fetching tenant documents:', error);
+    res.status(500).json({ error: 'ไม่สามารถโหลดเอกสารผู้เช่าได้' });
+  }
+};
+
 // 2. ดึงประวัติบิลของผู้เช่า
 exports.getMyBills = async (req, res) => {
   try {

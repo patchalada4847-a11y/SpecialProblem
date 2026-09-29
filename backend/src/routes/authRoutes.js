@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const authController = require('../controllers/authController');
+const { verifyToken } = require('../middleware/authMiddleware');
 
 /**
  * @openapi
@@ -45,5 +46,7 @@ const authController = require('../controllers/authController');
  */
 router.post('/register', authController.register);
 router.post('/login', authController.login);
+router.get('/me', verifyToken, authController.getMyProfile);
+router.put('/profile-image', verifyToken, authController.updateMyProfileImage);
 
 module.exports = router;

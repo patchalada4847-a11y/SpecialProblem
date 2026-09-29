@@ -1,6 +1,6 @@
 import { useCallback, useState, useEffect } from 'react';
 import { FileText, CheckCircle, Clock, X, Image as ImageIcon, Check, Calculator, Search, Plus, Trash2 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import api from '../api/axios';
 import useToast from '../components/useToast';
 import Pagination from '../components/Pagination';
@@ -12,6 +12,7 @@ const localDate = () => {
 
 export default function Bills() {
   const notify = useToast();
+  const [searchParams] = useSearchParams();
   const [bills, setBills] = useState([]);
   const [contracts, setContracts] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -22,7 +23,8 @@ export default function Bills() {
     `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
   );
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get('status') || 'all');
+  const [allPeriods, setAllPeriods] = useState(() => searchParams.get('all_periods') === '1');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [totalBills, setTotalBills] = useState(0);
@@ -72,8 +74,7 @@ export default function Bills() {
           params: {
             page,
             page_size: pageSize,
-            month,
-            year,
+            ...(allPeriods ? {} : { month, year }),
             status: statusFilter === 'all' ? '' : statusFilter,
             search
           }
@@ -85,7 +86,7 @@ export default function Bills() {
     } finally {
       setLoading(false);
     }
-  }, [billingMonth, page, pageSize, search, statusFilter]);
+  }, [allPeriods, billingMonth, page, pageSize, search, statusFilter]);
 
   useEffect(() => {
     Promise.resolve().then(fetchData);
@@ -233,18 +234,27 @@ export default function Bills() {
       {/* ตารางแสดงบิล */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-4">
         <div className="grid gap-3 md:grid-cols-[180px_1fr_180px]">
-          <label className="text-xs font-medium text-gray-600">
-            รอบบิล
-            <input
-              type="month"
-              value={billingMonth}
-              onChange={(e) => {
-                setBillingMonth(e.target.value);
-                setPage(1);
-              }}
-              className="mt-1 w-full rounded-lg border p-2.5 text-sm text-gray-800"
-            />
-          </label>
+          {allPeriods ? (
+            <div className="flex flex-col justify-center text-xs font-medium text-indigo-700">
+              แสดงบิลทุกช่วงเวลา
+              <button type="button" onClick={() => { setAllPeriods(false); setPage(1); }} className="mt-1 text-left text-gray-500 underline">
+                กลับไปดูเฉพาะรอบบิล
+              </button>
+            </div>
+          ) : (
+            <label className="text-xs font-medium text-gray-600">
+              รอบบิล
+              <input
+                type="month"
+                value={billingMonth}
+                onChange={(e) => {
+                  setBillingMonth(e.target.value);
+                  setPage(1);
+                }}
+                className="mt-1 w-full rounded-lg border p-2.5 text-sm text-gray-800"
+              />
+            </label>
+          )}
           <label className="text-xs font-medium text-gray-600">
             ค้นหาบิล / ห้อง / ผู้เช่า
             <span className="relative mt-1 block">

@@ -4,6 +4,7 @@ const router = express.Router();
 const settingsController = require('../controllers/settingsController');
 const { verifyToken, authorizeRoles } = require('../middleware/authMiddleware');
 
+router.get('/public', settingsController.getPublicDormitoryName);
 router.use(verifyToken, authorizeRoles('admin'));
 router.get('/', settingsController.getSettings);
 router.put('/rates', settingsController.updateRates);

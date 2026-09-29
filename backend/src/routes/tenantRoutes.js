@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const tenantController = require('../controllers/tenantController');
+const renewalController = require('../controllers/renewalController');
+const supportController = require('../controllers/supportController');
 const { verifyToken, authorizeRoles } = require('../middleware/authMiddleware');
 
 /**
@@ -49,8 +51,15 @@ router.get('/me', verifyToken, tenantController.getMyProfileAndContract);
 router.get('/my-bills', verifyToken, tenantController.getMyBills);
 router.put('/update-profile', verifyToken, tenantController.updateMyProfile);
 router.put('/admin/tenants/:id', verifyToken, authorizeRoles('admin'), tenantController.updateTenantProfile);
+router.get('/admin/tenants/:id/documents', verifyToken, authorizeRoles('admin'), tenantController.getTenantDocuments);
 router.get('/available-tenants', verifyToken, authorizeRoles('admin'), tenantController.getAvailableTenants);
 router.post('/upload-slip', verifyToken, tenantController.uploadSlip);
+router.get('/renewals', verifyToken, authorizeRoles('tenant'), renewalController.getMyRenewals);
+router.post('/renewals', verifyToken, authorizeRoles('tenant'), renewalController.createMyRenewal);
+router.put('/renewals/:id/signed-document', verifyToken, authorizeRoles('tenant'), renewalController.uploadSignedRenewal);
+router.get('/support-tickets', verifyToken, authorizeRoles('tenant'), supportController.getMyTickets);
+router.post('/support-tickets', verifyToken, authorizeRoles('tenant'), supportController.createTicket);
+router.put('/support-tickets/:id/close', verifyToken, authorizeRoles('tenant'), supportController.closeMyTicket);
 
 router.get('/pending-kyc', verifyToken, authorizeRoles('admin'), tenantController.getPendingKYC);
 router.post('/verify-kyc', verifyToken, authorizeRoles('admin'), tenantController.verifyKYC);

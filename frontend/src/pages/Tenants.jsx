@@ -1,9 +1,10 @@
 import { useCallback, useState, useEffect } from 'react';
-import { UserPlus, X, User, Edit2, Search, LogOut } from 'lucide-react';
+import { UserPlus, X, User, Edit2, Search, LogOut, FileText } from 'lucide-react';
 import api from '../api/axios';
 import useToast from '../components/useToast';
 import Pagination from '../components/Pagination';
 import ContractAssignmentModal from '../components/ContractAssignmentModal';
+import TenantDocumentsModal from '../components/TenantDocumentsModal';
 
 export default function Tenants() {
   const notify = useToast();
@@ -14,6 +15,8 @@ export default function Tenants() {
   const [assignmentTenant, setAssignmentTenant] = useState(null);
   const [editingTenant, setEditingTenant] = useState(null);
   const [editingContract, setEditingContract] = useState(null);
+  const [tenantDocuments, setTenantDocuments] = useState(null);
+  const [loadingDocuments, setLoadingDocuments] = useState(false);
   const [search, setSearch] = useState('');
   const [contractPage, setContractPage] = useState(1);
   const [directoryPage, setDirectoryPage] = useState(1);
@@ -67,6 +70,18 @@ export default function Tenants() {
       fetchData();
     } catch (err) {
       notify(err.response?.data?.error || 'บันทึกข้อมูลผู้เช่าไม่สำเร็จ', 'error');
+    }
+  };
+
+  const openTenantDocuments = async (tenant) => {
+    setLoadingDocuments(true);
+    try {
+      const response = await api.get(`/tenant/admin/tenants/${tenant.user_id}/documents`);
+      setTenantDocuments(response.data);
+    } catch (err) {
+      notify(err.response?.data?.error || 'โหลดเอกสารผู้เช่าไม่สำเร็จ', 'error');
+    } finally {
+      setLoadingDocuments(false);
     }
   };
 
@@ -157,6 +172,9 @@ export default function Tenants() {
                     <td className="p-3">{tenant.account_status || '-'}</td>
                     <td className="p-3">
                       <div className="flex items-center justify-start gap-1">
+                        <button type="button" onClick={() => openTenantDocuments(tenant)} disabled={loadingDocuments} className="rounded-lg p-2 text-teal-700 hover:bg-teal-50 disabled:opacity-50" title="ดูเอกสารและสัญญาที่แนบ" aria-label={`ดูเอกสารของ ${tenant.first_name} ${tenant.last_name}`}>
+                          <FileText size={16} />
+                        </button>
                         <button onClick={() => openTenantEditor(tenant)} className="inline-flex items-center gap-1 rounded-lg p-2 text-indigo-600 hover:bg-indigo-50" title="แก้ไขข้อมูลผู้เช่า">
                           <Edit2 size={16} /> แก้ไข
                         </button>
@@ -279,23 +297,24 @@ export default function Tenants() {
                     </td>
                     <td className="p-3">
                       <div className="flex justify-start gap-1">
-                        <button
-                          type="button"
-                          onClick={() => openTenantEditor(c)}
-                          className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg"
-                          title="แก้ไขข้อมูลผู้เช่า"
-                        >
-                          <User size={16} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => openContractEditor(c)}
-                          className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg"
-                          title="แก้ไขสัญญา"
-                        >
-                          <Edit2 size={16} />
-                        </button>
                         {c.status === 'active' && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => openTenantEditor(c)}
+                              className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg"
+                              title="แก้ไขข้อมูลผู้เช่า"
+                            >
+                              <User size={16} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openContractEditor(c)}
+                              className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg"
+                              title="แก้ไขสัญญา"
+                            >
+                              <Edit2 size={16} />
+                            </button>
                           <button
                             type="button"
                             onClick={() => handleMoveOut(c)}
@@ -305,8 +324,10 @@ export default function Tenants() {
                           >
                             <LogOut size={16} />
                           </button>
+                          </>
                         )}
                       </div>
+
                     </td>
                   </tr>
                 ))}
@@ -329,6 +350,8 @@ export default function Tenants() {
           />
         )}
       </div>
+
+      <TenantDocumentsModal data={tenantDocuments} onClose={() => setTenantDocuments(null)} />
 
       {showModal && (
         <ContractAssignmentModal

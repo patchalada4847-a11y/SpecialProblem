@@ -116,6 +116,9 @@ export default function Settings() {
     try {
       const res = await api.put('/settings/dormitory', dormitory);
       setDormitory(res.data);
+      window.dispatchEvent(new CustomEvent('dormitory-settings-updated', {
+        detail: res.data.dormitory_name
+      }));
       notify('บันทึกข้อมูลหอพักแล้ว', 'success');
     } catch (err) {
       notify(err.response?.data?.error || 'บันทึกข้อมูลหอพักไม่สำเร็จ', 'error');

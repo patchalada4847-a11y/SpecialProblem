@@ -94,6 +94,37 @@ aside .brand-panel .brand-image {
   object-fit: contain;
 }
 
+aside .brand-panel .profile-photo-picker {
+  position: relative;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+aside .brand-panel .profile-avatar {
+  display: grid;
+  place-items: center;
+  border-radius: 50% !important;
+  object-fit: cover;
+}
+
+aside .brand-panel .profile-avatar-placeholder {
+  color: #087e76;
+}
+
+aside .brand-panel .profile-photo-camera {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  display: grid;
+  width: 19px;
+  height: 19px;
+  place-items: center;
+  border: 2px solid #f2f9f7;
+  border-radius: 50% !important;
+  background: #087e76;
+  color: white;
+}
+
 aside .brand-panel .text-teal-100 {
   color: #087e76;
 }

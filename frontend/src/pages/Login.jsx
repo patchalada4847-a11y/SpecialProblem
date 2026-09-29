@@ -1,16 +1,26 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { LogIn, Lock, User, UserPlus } from 'lucide-react';
+import { Eye, EyeOff, LogIn, Lock, User, UserPlus } from 'lucide-react';
+import { useEffect } from 'react';
 import dormitoryImage from '../assets/dormitory.svg';
 import api from '../api/axios';
+import AppInfo from '../components/AppInfo';
 
 export default function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [dormitoryName, setDormitoryName] = useState('Residence Management');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   
   const navigate = useNavigate();
+
+  useEffect(() => {
+    api.get('/settings/public')
+      .then((response) => setDormitoryName(response.data.dormitory_name))
+      .catch((loadError) => console.error('Unable to load dormitory name:', loadError));
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -51,7 +61,7 @@ export default function Login() {
             <img src={dormitoryImage} alt="" className="h-10 w-10 object-cover" />
           </div>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-teal-800">Residence Management</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-teal-800">{dormitoryName}</p>
             <h2 className="text-2xl font-bold text-slate-800">เข้าสู่ระบบหอพัก</h2>
           </div>
         </div>
@@ -85,13 +95,22 @@ export default function Login() {
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
               <input
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
                 placeholder="กรอกรหัสผ่าน"
-                className="w-full pl-10 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-800 outline-none transition"
+                className="w-full pl-10 pr-11 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-800 outline-none transition"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword((visible) => !visible)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
+                aria-label={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
+                aria-pressed={showPassword}
+              >
+                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
             </div>
           </div>
 
@@ -116,6 +135,7 @@ export default function Login() {
             <span>สมัครสมาชิกใหม่</span>
           </Link>
         </div>
+        <AppInfo className="mt-5 text-center" />
       </div>
     </div>
   );

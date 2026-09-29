@@ -14,6 +14,8 @@ const reportRoutes = require('./routes/reportRoutes');
 const tenantRoutes = require('./routes/tenantRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const renewalRoutes = require('./routes/renewalRoutes');
+const supportRoutes = require('./routes/supportRoutes');
 const migrateDatabase = require('./config/migrateDatabase');
 
 const app = express();
@@ -35,6 +37,8 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/tenant', tenantRoutes);
 app.use('/api/settings', settingsRoutes);
 app.use('/api/admins', adminRoutes);
+app.use('/api/renewals', renewalRoutes);
+app.use('/api/support-tickets', supportRoutes);
 
 app.get('/', (req, res) => {
   res.send('Dormitory Management API Running... Go to <a href="/api-docs">/api-docs</a>');

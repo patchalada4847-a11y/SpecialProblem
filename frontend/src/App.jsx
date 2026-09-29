@@ -12,6 +12,7 @@ import KYCApproval from './pages/KYCApproval'; // 1. เพิ่ม Import ต�
 import Settings from './pages/Settings';
 import Reports from './pages/Reports';
 import BillDocument from './pages/BillDocument';
+import TenantServices from './pages/TenantServices';
 import { ToastProvider } from './components/ToastProvider';
 
 // คอมโพเนนต์ช่วยเลือก Redirect ไปยัง Dashboard ตาม Role
@@ -46,6 +47,7 @@ function App() {
             <Route path="bills/:billId" element={<BillDocument />} />
             <Route path="settings" element={<Settings />} />
             <Route path="reports" element={<Reports />} />
+            <Route path="tenant-services" element={<TenantServices />} />
 
             {/* Route สำหรับ Tenant */}
             <Route path="my-dashboard" element={<TenantDashboard />} />

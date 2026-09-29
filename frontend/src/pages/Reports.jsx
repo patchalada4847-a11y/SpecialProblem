@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Download, Plus, RefreshCw, Save, Trash2, X } from 'lucide-react';
 import api from '../api/axios';
 import useToast from '../components/useToast';
@@ -51,6 +52,7 @@ async function fetchReportData(dateRange) {
 
 export default function Reports() {
   const notify = useToast();
+  const location = useLocation();
   const [summary, setSummary] = useState(null);
   const [monthly, setMonthly] = useState([]);
   const [rooms, setRooms] = useState([]);
@@ -121,6 +123,12 @@ export default function Reports() {
       clearInterval(intervalId);
     };
   }, [dateRange, notify]);
+
+  useEffect(() => {
+    if (!loading && location.hash === '#expense-transactions') {
+      document.getElementById('expense-transactions')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [loading, location.hash]);
 
   const handleAddExpense = async (e) => {
     e.preventDefault();
@@ -277,7 +285,7 @@ export default function Reports() {
             </div>
           </section>
 
-          <section className="rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
+          <section id="expense-transactions" className="scroll-mt-6 rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="font-semibold text-gray-800">รายการรายจ่ายล่าสุด</h2>

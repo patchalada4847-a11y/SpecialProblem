@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { UserPlus, UploadCloud, FileCheck } from 'lucide-react';
+import { Eye, EyeOff, UserPlus, UploadCloud, FileCheck } from 'lucide-react';
 import dormitoryImage from '../assets/dormitory.svg';
 import api from '../api/axios';
 import useToast from '../components/useToast';
+import AppInfo from '../components/AppInfo';
 
 export default function Register() {
   const notify = useToast();
@@ -13,19 +14,30 @@ export default function Register() {
     first_name: '',
     last_name: '',
     phone: '',
-    kyc_document: ''
+    kyc_document: '',
+    profile_image: '',
+    pdpa_consent: false
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [fileName, setFileName] = useState('');
+  const [profileFileName, setProfileFileName] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [dormitoryName, setDormitoryName] = useState('Residence Management');
   const navigate = useNavigate();
+
+  useEffect(() => {
+    api.get('/settings/public')
+      .then((response) => setDormitoryName(response.data.dormitory_name))
+      .catch((loadError) => console.error('Unable to load dormitory name:', loadError));
+  }, []);
 
   const handleFileChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    if (file.size > 5 * 1024 * 1024) {
-      notify('ขนาดไฟล์ต้องไม่เกิน 5MB', 'error');
+    if (!['application/pdf', 'image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 10 * 1024 * 1024) {
+      notify('เลือกไฟล์ PDF, JPG, PNG หรือ WebP ขนาดไม่เกิน 10MB', 'error');
       return;
     }
 
@@ -34,6 +46,24 @@ export default function Register() {
     reader.onloadend = () => {
       setForm((prev) => ({ ...prev, kyc_document: reader.result }));
     };
+    reader.readAsDataURL(file);
+  };
+
+  const handleProfileImageChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+      notify('เลือกรูป JPG, PNG หรือ WebP ขนาดไม่เกิน 5MB', 'error');
+      e.target.value = '';
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      setForm((prev) => ({ ...prev, profile_image: reader.result }));
+      setProfileFileName(file.name);
+    };
+    reader.onerror = () => notify('อ่านไฟล์รูปโปรไฟล์ไม่สำเร็จ', 'error');
     reader.readAsDataURL(file);
   };
 
@@ -66,7 +96,7 @@ export default function Register() {
             <img src={dormitoryImage} alt="" className="h-10 w-10 object-cover" />
           </div>
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-teal-800">Residence Management</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-teal-800">{dormitoryName}</p>
             <h2 className="text-2xl font-bold text-gray-800">ลงทะเบียนเข้าใช้งาน</h2>
           </div>
         </div>
@@ -126,13 +156,43 @@ export default function Register() {
 
           <div>
             <label className="block text-xs font-medium text-gray-700 mb-1">รหัสผ่าน (Password)</label>
-            <input
-              type="password"
-              required
-              value={form.password}
-              onChange={(e) => setForm({ ...form, password: e.target.value })}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500"
-            />
+            <div className="relative">
+              <input
+                type={showPassword ? 'text' : 'password'}
+                required
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 pr-10 text-sm outline-none focus:ring-2 focus:ring-indigo-500"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((visible) => !visible)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700"
+                aria-label={showPassword ? 'ซ่อนรหัสผ่าน' : 'แสดงรหัสผ่าน'}
+                aria-pressed={showPassword}
+              >
+                {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
+              </button>
+            </div>
+          </div>
+
+          {/* อัปโหลดเอกสาร KYC */}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">รูปโปรไฟล์ (ไม่บังคับ)</label>
+            <label className="border-2 border-dashed border-gray-300 hover:border-indigo-500 rounded-lg p-3 flex flex-col items-center justify-center cursor-pointer bg-gray-50 transition">
+              {profileFileName ? (
+                <div className="flex items-center gap-2 text-indigo-600 text-xs font-medium">
+                  <img src={form.profile_image} alt="ตัวอย่างรูปโปรไฟล์" className="h-10 w-10 rounded-full object-cover" />
+                  <span><FileCheck size={16} className="inline" /> {profileFileName}</span>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-1 text-gray-500 text-xs">
+                  <UploadCloud size={20} className="text-gray-400" />
+                  <span>เลือกรูป JPG, PNG หรือ WebP (ไม่เกิน 5MB)</span>
+                </div>
+              )}
+              <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleProfileImageChange} className="hidden" />
+            </label>
           </div>
 
           {/* อัปโหลดเอกสาร KYC */}
@@ -146,10 +206,30 @@ export default function Register() {
               ) : (
                 <div className="flex flex-col items-center gap-1 text-gray-500 text-xs">
                   <UploadCloud size={20} className="text-gray-400" />
-                  <span>คลิกเพื่อเลือกไฟล์รูปภาพ</span>
+                  <span>คลิกเพื่อเลือกไฟล์รูปภาพหรือ PDF (ไม่เกิน 10MB)</span>
                 </div>
               )}
-              <input type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+              <input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={handleFileChange} className="hidden" />
+            </label>
+          </div>
+
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+            <p className="font-semibold">ประกาศความเป็นส่วนตัว (PDPA)</p>
+            <p className="mt-1 leading-relaxed">
+              ระบบเก็บชื่อ เบอร์โทร รูปโปรไฟล์ และเอกสารยืนยันตัวตน เพื่อสร้างบัญชี ตรวจสอบตัวตน
+              และจัดการสัญญาเช่า บิล และการชำระเงิน จำกัดการเข้าถึงเฉพาะผู้มีหน้าที่ดูแล
+              และเก็บข้อมูลเท่าที่จำเป็นตามระยะเวลาการให้บริการและข้อกำหนดทางกฎหมาย
+              คุณสามารถขอเข้าถึง แก้ไข หรือลบข้อมูลได้โดยติดต่อผู้ดูแลหอพัก
+            </p>
+            <label className="mt-3 flex cursor-pointer items-start gap-2 font-medium">
+              <input
+                type="checkbox"
+                required
+                checked={form.pdpa_consent}
+                onChange={(e) => setForm({ ...form, pdpa_consent: e.target.checked })}
+                className="mt-0.5"
+              />
+              <span>ข้าพเจ้าอ่านและรับทราบประกาศความเป็นส่วนตัว และยินยอมให้ใช้ข้อมูลตามวัตถุประสงค์ข้างต้น</span>
             </label>
           </div>
 
@@ -166,6 +246,7 @@ export default function Register() {
         <div className="mt-4 text-center text-sm text-gray-500">
           มีบัญชีอยู่แล้ว? <Link to="/login" className="text-indigo-600 font-semibold hover:underline">เข้าสู่ระบบ</Link>
         </div>
+        <AppInfo className="mt-4 text-center" />
       </div>
     </div>
   );

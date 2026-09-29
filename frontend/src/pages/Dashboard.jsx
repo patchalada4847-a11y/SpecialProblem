@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Building, Users, AlertCircle, TrendingUp } from 'lucide-react';
 import api from '../api/axios';
 
@@ -150,17 +151,27 @@ export default function Dashboard() {
       {summary?.pending_bills_summary && (
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
           <h2 className="text-lg font-semibold text-gray-800 mb-4">สถานะการชำระเงิน</h2>
-          <div className="flex items-center justify-between p-4 bg-amber-50 border border-amber-200 rounded-lg text-amber-800">
+          <Link to="/bills?status=pending&all_periods=1" className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 p-4 text-amber-800 transition hover:bg-amber-100">
             <span>มีบิลค้างชำระทั้งหมด {summary.pending_bills_summary.unpaid_count || 0} รายการ (รวม ฿{Number(summary.pending_bills_summary.unpaid_amount || 0).toLocaleString()})</span>
-          </div>
+            <span aria-hidden="true">ดูรายการ →</span>
+          </Link>
         </div>
       )}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
         <h2 className="text-lg font-semibold text-gray-800 mb-3">สรุปการเงิน</h2>
         <div className="grid gap-4 sm:grid-cols-3 text-sm">
-          <p className="text-gray-600">รายรับสะสม: <strong className="text-emerald-700">฿{Number(summary?.financial_summary?.total_income || 0).toLocaleString()}</strong></p>
-          <p className="text-gray-600">รายจ่ายสะสม: <strong className="text-rose-600">฿{Number(summary?.financial_summary?.total_expense || 0).toLocaleString()}</strong></p>
-          <p className="text-gray-600">บิลค้างชำระ: <strong className="text-amber-700">{unpaidCount} รายการ</strong></p>
+          <Link to="/bills?status=paid&all_periods=1" className="rounded-lg p-2 text-gray-600 transition hover:bg-emerald-50 hover:text-emerald-800">
+            รายรับสะสม: <strong className="text-emerald-700">฿{Number(summary?.financial_summary?.total_income || 0).toLocaleString()}</strong>
+            <span className="mt-1 block text-xs">ดูบิลที่ชำระแล้ว →</span>
+          </Link>
+          <Link to="/reports#expense-transactions" className="rounded-lg p-2 text-gray-600 transition hover:bg-rose-50 hover:text-rose-700">
+            รายจ่ายสะสม: <strong className="text-rose-600">฿{Number(summary?.financial_summary?.total_expense || 0).toLocaleString()}</strong>
+            <span className="mt-1 block text-xs">ดูรายการรายจ่าย →</span>
+          </Link>
+          <Link to="/bills?status=pending&all_periods=1" className="rounded-lg p-2 text-gray-600 transition hover:bg-amber-50 hover:text-amber-800">
+            บิลค้างชำระ: <strong className="text-amber-700">{unpaidCount} รายการ</strong>
+            <span className="mt-1 block text-xs">ดูรายการบิลค้าง →</span>
+          </Link>
         </div>
       </div>
     </div>

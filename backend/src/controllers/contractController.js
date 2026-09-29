@@ -104,7 +104,7 @@ exports.updateContractStatus = async (req, res) => {
   try {
     const updateResult = await db.withTransaction(async (client) => {
       const existingResult = await client.query(
-        `SELECT start_date::text AS start_date,
+        `SELECT start_date::text AS start_date, status,
                 TO_CHAR(CURRENT_DATE, 'YYYY-MM-DD') AS today_date
          FROM m_contracts
          WHERE contract_id = $1
@@ -113,6 +113,7 @@ exports.updateContractStatus = async (req, res) => {
       );
       if (existingResult.rows.length === 0) return { missing: true };
       const existingContract = existingResult.rows[0];
+      if (existingContract.status !== 'active') return { locked: true };
       const effectiveStartDate = String(start_date || existingContract.start_date).slice(0, 10);
       let effectiveEndDate = end_date || null;
       if (!effectiveEndDate && status === 'terminated') {
@@ -146,6 +147,9 @@ exports.updateContractStatus = async (req, res) => {
       return { contract: updatedContract };
     });
     if (updateResult.missing) return res.status(404).json({ message: 'Contract not found' });
+    if (updateResult.locked) {
+      return res.status(409).json({ error: 'สัญญาที่สิ้นสุดแล้วไม่สามารถแก้ไขได้' });
+    }
     if (updateResult.invalidDateRange) {
       return res.status(400).json({ error: 'วันเริ่มสัญญาต้องไม่อยู่หลังวันสิ้นสุดสัญญา' });
     }

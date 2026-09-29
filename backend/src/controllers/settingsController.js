@@ -1,5 +1,17 @@
 const db = require('../config/db');
 
+exports.getPublicDormitoryName = async (_req, res) => {
+  try {
+    const result = await db.query(
+      'SELECT dormitory_name FROM m_billing_settings WHERE setting_id = 1'
+    );
+    res.json({ dormitory_name: result.rows[0]?.dormitory_name || 'ระบบจัดการหอพัก' });
+  } catch (err) {
+    console.error('Error fetching public dormitory name:', err);
+    res.status(500).json({ error: 'ไม่สามารถโหลดชื่อหอพักได้' });
+  }
+};
+
 exports.getSettings = async (req, res) => {
   try {
     const [settingsResult, roomTypesResult] = await Promise.all([

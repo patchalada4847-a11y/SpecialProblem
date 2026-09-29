@@ -117,14 +117,18 @@ export default function KYCApproval() {
       {/* Modal ดูเอกสาร KYC */}
       {viewDoc && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl max-w-md w-full p-5 space-y-4 shadow-2xl">
+          <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[92dvh] overflow-y-auto p-5 space-y-4 shadow-2xl">
             <div className="flex justify-between items-center border-b pb-2">
               <h3 className="font-bold text-gray-800 text-sm">เอกสารของ {viewDoc.first_name} {viewDoc.last_name}</h3>
               <button onClick={() => setViewDoc(null)} className="text-gray-400 hover:text-gray-600"><X size={18} /></button>
             </div>
-            <div className="max-h-[400px] overflow-auto flex justify-center bg-gray-50 rounded-lg p-2">
-              <img src={viewDoc.kyc_document} alt="KYC Document" className="max-w-full rounded-md shadow" />
-            </div>
+            {viewDoc.kyc_document.startsWith('data:application/pdf;') ? (
+              <iframe title={`เอกสารของ ${viewDoc.first_name} ${viewDoc.last_name}`} src={viewDoc.kyc_document} className="h-[65dvh] w-full rounded-lg border bg-gray-50" />
+            ) : (
+              <div className="max-h-[65dvh] overflow-auto flex justify-center bg-gray-50 rounded-lg p-2">
+                <img src={viewDoc.kyc_document} alt="เอกสารยืนยันตัวตนหรือสัญญา" className="max-w-full rounded-md shadow" />
+              </div>
+            )}
             <div className="flex gap-2 pt-2">
               <button
                 onClick={() => handleVerify(viewDoc.user_id, 'approved')}
