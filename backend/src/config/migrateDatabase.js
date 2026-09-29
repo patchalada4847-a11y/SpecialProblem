@@ -1,0 +1,293 @@
+const db = require('./db');
+
+const expectedColumns = {
+  m_users: {
+    user_id: 'id', username: 'text', password: 'text', first_name: 'text', last_name: 'text',
+    phone: 'text', role: 'text', status: 'text', kyc_document: 'text', created_at: 'timestamp'
+  },
+  m_rooms: {
+    room_id: 'id', room_number: 'text', floor: 'integer', room_type: 'text',
+    base_price: 'numeric', status: 'text'
+  },
+  m_contracts: {
+    contract_id: 'id', room_id: 'id', tenant_id: 'id', start_date: 'date',
+    end_date: 'date', deposit: 'numeric', status: 'text'
+  },
+  t_bills: {
+    bill_id: 'id', contract_id: 'id', month: 'integer', year: 'integer', rent_amount: 'numeric',
+    water_old_meter: 'numeric', water_new_meter: 'numeric', water_unit: 'numeric',
+    water_amount: 'numeric', electric_old_meter: 'numeric', electric_new_meter: 'numeric',
+    electric_unit: 'numeric', electric_amount: 'numeric', total_amount: 'numeric',
+    payment_status: 'text', due_date: 'date', slip_image: 'text', created_at: 'timestamp'
+  },
+  t_transactions: {
+    transaction_id: 'id', type: 'text', category: 'text', amount: 'numeric',
+    description: 'text', transaction_date: 'date'
+  },
+  m_billing_settings: {
+    setting_id: 'integer', water_rate: 'numeric', electric_rate: 'numeric'
+  },
+  m_room_types: {
+    type_id: 'id', room_type: 'text', base_price: 'numeric'
+  }
+};
+
+function typeMatches(expected, actual) {
+  if (!actual) return false;
+  if (expected === 'id' || expected === 'integer') {
+    return ['smallint', 'integer', 'bigint'].includes(actual.data_type);
+  }
+  if (expected === 'text') {
+    return ['text', 'character varying', 'character'].includes(actual.data_type);
+  }
+  if (expected === 'numeric') {
+    return ['numeric', 'smallint', 'integer', 'bigint', 'real', 'double precision'].includes(actual.data_type);
+  }
+  if (expected === 'date') return actual.data_type === 'date';
+  if (expected === 'timestamp') {
+    return ['timestamp with time zone', 'timestamp without time zone'].includes(actual.data_type);
+  }
+  return false;
+}
+
+async function inspectSchema(client, phase) {
+  const tableNames = Object.keys(expectedColumns);
+  const result = await client.query(
+    `SELECT table_name, column_name, data_type, udt_name
+     FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND table_name = ANY($1::text[])`,
+    [tableNames]
+  );
+  const actualColumns = new Map(
+    result.rows.map(({ table_name, column_name, data_type, udt_name }) => [
+      `${table_name}.${column_name}`,
+      { data_type, udt_name }
+    ])
+  );
+  const existingTables = new Set(result.rows.map(({ table_name }) => table_name));
+  const issues = [];
+
+  console.log(`[DB SCHEMA] ${phase}: comparing tables and columns with project schema...`);
+  for (const [table, columns] of Object.entries(expectedColumns)) {
+    if (!existingTables.has(table)) {
+      const issue = `${table} table is missing`;
+      issues.push(issue);
+      console.log(`[DB SCHEMA] MISMATCH ${table}: table is missing`);
+      continue;
+    }
+
+    const mismatches = Object.entries(columns).flatMap(([column, expectedType]) => {
+      const actual = actualColumns.get(`${table}.${column}`);
+      if (!actual) return [`${column} is missing (expected ${expectedType})`];
+      if (typeMatches(expectedType, actual)) return [];
+      return [`${column} expected ${expectedType}, found ${actual.data_type} (${actual.udt_name})`];
+    });
+
+    if (mismatches.length > 0) {
+      issues.push(...mismatches.map((mismatch) => `${table}.${mismatch}`));
+      console.log(`[DB SCHEMA] MISMATCH ${table}: ${mismatches.join('; ')}`);
+    } else {
+      console.log(`[DB SCHEMA] MATCH ${table}: all ${Object.keys(columns).length} expected columns and types match`);
+    }
+  }
+
+  return issues;
+}
+
+const migrations = [
+  {
+    version: 1,
+    name: 'core dormitory tables',
+    statements: [
+      `CREATE TABLE IF NOT EXISTS m_users (
+        user_id BIGSERIAL PRIMARY KEY,
+        username TEXT NOT NULL UNIQUE,
+        password TEXT NOT NULL,
+        first_name TEXT NOT NULL,
+        last_name TEXT NOT NULL,
+        phone TEXT,
+        role TEXT NOT NULL DEFAULT 'tenant',
+        status TEXT,
+        kyc_document TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE TABLE IF NOT EXISTS m_rooms (
+        room_id BIGSERIAL PRIMARY KEY,
+        room_number TEXT NOT NULL UNIQUE,
+        floor INTEGER NOT NULL,
+        room_type TEXT NOT NULL DEFAULT 'Standard',
+        base_price NUMERIC(10, 2) NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'vacant'
+      )`,
+      `CREATE TABLE IF NOT EXISTS t_transactions (
+        transaction_id BIGSERIAL PRIMARY KEY,
+        type TEXT NOT NULL,
+        category TEXT NOT NULL,
+        amount NUMERIC(12, 2) NOT NULL,
+        description TEXT NOT NULL,
+        transaction_date DATE NOT NULL DEFAULT CURRENT_DATE
+      )`,
+      `CREATE TABLE IF NOT EXISTS m_billing_settings (
+        setting_id SMALLINT PRIMARY KEY CHECK (setting_id = 1),
+        water_rate NUMERIC(10, 2) NOT NULL CHECK (water_rate >= 0),
+        electric_rate NUMERIC(10, 2) NOT NULL CHECK (electric_rate >= 0)
+      )`,
+      `CREATE TABLE IF NOT EXISTS m_room_types (
+        type_id BIGSERIAL PRIMARY KEY,
+        room_type TEXT NOT NULL UNIQUE,
+        base_price NUMERIC(10, 2) NOT NULL CHECK (base_price >= 0)
+      )`,
+      `ALTER TABLE m_users ADD COLUMN IF NOT EXISTS user_id BIGINT GENERATED BY DEFAULT AS IDENTITY`,
+      `ALTER TABLE m_users ADD COLUMN IF NOT EXISTS username TEXT`,
+      `ALTER TABLE m_users ADD COLUMN IF NOT EXISTS password TEXT`,
+      `ALTER TABLE m_users ADD COLUMN IF NOT EXISTS first_name TEXT`,
+      `ALTER TABLE m_users ADD COLUMN IF NOT EXISTS last_name TEXT`,
+      `ALTER TABLE m_users ADD COLUMN IF NOT EXISTS phone TEXT`,
+      `ALTER TABLE m_users ADD COLUMN IF NOT EXISTS role TEXT`,
+      `ALTER TABLE m_users ADD COLUMN IF NOT EXISTS status TEXT`,
+      `ALTER TABLE m_users ADD COLUMN IF NOT EXISTS kyc_document TEXT`,
+      `ALTER TABLE m_users ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
+      `ALTER TABLE m_rooms ADD COLUMN IF NOT EXISTS room_id BIGINT GENERATED BY DEFAULT AS IDENTITY`,
+      `ALTER TABLE m_rooms ADD COLUMN IF NOT EXISTS room_number TEXT`,
+      `ALTER TABLE m_rooms ADD COLUMN IF NOT EXISTS floor INTEGER`,
+      `ALTER TABLE m_rooms ADD COLUMN IF NOT EXISTS room_type TEXT DEFAULT 'Standard'`,
+      `ALTER TABLE m_rooms ADD COLUMN IF NOT EXISTS base_price NUMERIC(10, 2) DEFAULT 0`,
+      `ALTER TABLE m_rooms ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'vacant'`,
+      'CREATE UNIQUE INDEX IF NOT EXISTS m_users_user_id_migration_uidx ON m_users (user_id)',
+      'CREATE UNIQUE INDEX IF NOT EXISTS m_rooms_room_id_migration_uidx ON m_rooms (room_id)',
+      `CREATE TABLE IF NOT EXISTS m_contracts (
+        contract_id BIGSERIAL PRIMARY KEY,
+        room_id BIGINT NOT NULL REFERENCES m_rooms(room_id),
+        tenant_id BIGINT NOT NULL REFERENCES m_users(user_id),
+        start_date DATE NOT NULL,
+        end_date DATE NOT NULL,
+        deposit NUMERIC(10, 2) NOT NULL DEFAULT 0,
+        status TEXT NOT NULL DEFAULT 'active'
+      )`,
+      `ALTER TABLE m_contracts ADD COLUMN IF NOT EXISTS contract_id BIGINT GENERATED BY DEFAULT AS IDENTITY`,
+      `ALTER TABLE m_contracts ADD COLUMN IF NOT EXISTS room_id BIGINT`,
+      `ALTER TABLE m_contracts ADD COLUMN IF NOT EXISTS tenant_id BIGINT`,
+      `ALTER TABLE m_contracts ADD COLUMN IF NOT EXISTS start_date DATE`,
+      `ALTER TABLE m_contracts ADD COLUMN IF NOT EXISTS end_date DATE`,
+      `ALTER TABLE m_contracts ADD COLUMN IF NOT EXISTS deposit NUMERIC(10, 2) DEFAULT 0`,
+      `ALTER TABLE m_contracts ADD COLUMN IF NOT EXISTS status TEXT DEFAULT 'active'`,
+      'CREATE UNIQUE INDEX IF NOT EXISTS m_contracts_contract_id_migration_uidx ON m_contracts (contract_id)',
+      `CREATE TABLE IF NOT EXISTS t_bills (
+        bill_id BIGSERIAL PRIMARY KEY,
+        contract_id BIGINT NOT NULL REFERENCES m_contracts(contract_id),
+        month SMALLINT NOT NULL,
+        year INTEGER NOT NULL,
+        rent_amount NUMERIC(10, 2) NOT NULL DEFAULT 0,
+        water_old_meter NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        water_new_meter NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        water_unit NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        water_amount NUMERIC(10, 2) NOT NULL DEFAULT 0,
+        electric_old_meter NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        electric_new_meter NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        electric_unit NUMERIC(12, 2) NOT NULL DEFAULT 0,
+        electric_amount NUMERIC(10, 2) NOT NULL DEFAULT 0,
+        total_amount NUMERIC(10, 2) NOT NULL DEFAULT 0,
+        payment_status TEXT NOT NULL DEFAULT 'pending',
+        due_date DATE NOT NULL,
+        slip_image TEXT,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `ALTER TABLE t_bills ADD COLUMN IF NOT EXISTS bill_id BIGINT GENERATED BY DEFAULT AS IDENTITY`,
+      `ALTER TABLE t_bills ADD COLUMN IF NOT EXISTS contract_id BIGINT`,
+      `ALTER TABLE t_bills ADD COLUMN IF NOT EXISTS month SMALLINT`,
+      `ALTER TABLE t_bills ADD COLUMN IF NOT EXISTS year INTEGER`,
+      `ALTER TABLE t_bills ADD COLUMN IF NOT EXISTS rent_amount NUMERIC(10, 2) DEFAULT 0`,
+      `ALTER TABLE t_bills ADD COLUMN IF NOT EXISTS water_old_meter NUMERIC(12, 2) DEFAULT 0`,
+      `ALTER TABLE t_bills ADD COLUMN IF NOT EXISTS water_new_meter NUMERIC(12, 2) DEFAULT 0`,
+      `ALTER TABLE t_bills ADD COLUMN IF NOT EXISTS water_unit NUMERIC(12, 2) DEFAULT 0`,
+      `ALTER TABLE t_bills ADD COLUMN IF NOT EXISTS water_amount NUMERIC(10, 2) DEFAULT 0`,
+      `ALTER TABLE t_bills ADD COLUMN IF NOT EXISTS electric_old_meter NUMERIC(12, 2) DEFAULT 0`,
+      `ALTER TABLE t_bills ADD COLUMN IF NOT EXISTS electric_new_meter NUMERIC(12, 2) DEFAULT 0`,
+      `ALTER TABLE t_bills ADD COLUMN IF NOT EXISTS electric_unit NUMERIC(12, 2) DEFAULT 0`,
+      `ALTER TABLE t_bills ADD COLUMN IF NOT EXISTS electric_amount NUMERIC(10, 2) DEFAULT 0`,
+      `ALTER TABLE t_bills ADD COLUMN IF NOT EXISTS total_amount NUMERIC(10, 2) DEFAULT 0`,
+      `ALTER TABLE t_bills ADD COLUMN IF NOT EXISTS payment_status TEXT DEFAULT 'pending'`,
+      `ALTER TABLE t_bills ADD COLUMN IF NOT EXISTS due_date DATE`,
+      `ALTER TABLE t_bills ADD COLUMN IF NOT EXISTS slip_image TEXT`,
+      `ALTER TABLE t_bills ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP`,
+      `ALTER TABLE t_transactions ADD COLUMN IF NOT EXISTS transaction_id BIGINT GENERATED BY DEFAULT AS IDENTITY`,
+      `ALTER TABLE t_transactions ADD COLUMN IF NOT EXISTS type TEXT`,
+      `ALTER TABLE t_transactions ADD COLUMN IF NOT EXISTS category TEXT`,
+      `ALTER TABLE t_transactions ADD COLUMN IF NOT EXISTS amount NUMERIC(12, 2)`,
+      `ALTER TABLE t_transactions ADD COLUMN IF NOT EXISTS description TEXT`,
+      `ALTER TABLE t_transactions ADD COLUMN IF NOT EXISTS transaction_date DATE DEFAULT CURRENT_DATE`,
+      `ALTER TABLE m_billing_settings ADD COLUMN IF NOT EXISTS setting_id SMALLINT`,
+      `ALTER TABLE m_billing_settings ADD COLUMN IF NOT EXISTS water_rate NUMERIC(10, 2) DEFAULT 18`,
+      `ALTER TABLE m_billing_settings ADD COLUMN IF NOT EXISTS electric_rate NUMERIC(10, 2) DEFAULT 8`,
+      `ALTER TABLE m_room_types ADD COLUMN IF NOT EXISTS type_id BIGINT GENERATED BY DEFAULT AS IDENTITY`,
+      `ALTER TABLE m_room_types ADD COLUMN IF NOT EXISTS room_type TEXT`,
+      `ALTER TABLE m_room_types ADD COLUMN IF NOT EXISTS base_price NUMERIC(10, 2) DEFAULT 0`,
+      'CREATE UNIQUE INDEX IF NOT EXISTS m_room_types_type_id_migration_uidx ON m_room_types (type_id)',
+      'CREATE UNIQUE INDEX IF NOT EXISTS m_billing_settings_setting_id_migration_uidx ON m_billing_settings (setting_id)',
+      'CREATE UNIQUE INDEX IF NOT EXISTS t_bills_bill_id_migration_uidx ON t_bills (bill_id)',
+      'CREATE UNIQUE INDEX IF NOT EXISTS t_transactions_transaction_id_migration_uidx ON t_transactions (transaction_id)',
+      'CREATE UNIQUE INDEX IF NOT EXISTS m_users_username_migration_uidx ON m_users (username)',
+      'CREATE UNIQUE INDEX IF NOT EXISTS m_rooms_room_number_migration_uidx ON m_rooms (room_number)',
+      'CREATE UNIQUE INDEX IF NOT EXISTS m_room_types_room_type_migration_uidx ON m_room_types (room_type)',
+      'CREATE INDEX IF NOT EXISTS m_contracts_tenant_id_migration_idx ON m_contracts (tenant_id)',
+      'CREATE INDEX IF NOT EXISTS m_contracts_room_id_migration_idx ON m_contracts (room_id)',
+      'CREATE INDEX IF NOT EXISTS t_bills_contract_period_migration_idx ON t_bills (contract_id, year, month)',
+      'CREATE INDEX IF NOT EXISTS t_transactions_date_migration_idx ON t_transactions (transaction_date)',
+      `INSERT INTO m_billing_settings (setting_id, water_rate, electric_rate)
+       VALUES (1, 18, 8)
+       ON CONFLICT (setting_id) DO NOTHING`,
+      `INSERT INTO m_room_types (room_type, base_price)
+       SELECT room_type, COALESCE(MAX(base_price), 0)
+       FROM m_rooms
+       WHERE room_type IS NOT NULL AND BTRIM(room_type) <> ''
+       GROUP BY room_type
+       ON CONFLICT (room_type) DO NOTHING`
+    ]
+  }
+];
+
+async function migrateDatabase() {
+  await db.withTransaction(async (client) => {
+    await client.query('SELECT pg_advisory_xact_lock($1)', [727385110]);
+    console.log('[DB SCHEMA] Checking current database tables and columns...');
+    const beforeIssues = await inspectSchema(client, 'BEFORE MIGRATION');
+    if (beforeIssues.length > 0) {
+      console.log(`[DB SCHEMA] BEFORE MIGRATION: ${beforeIssues.length} mismatch(es); attempting safe, additive migrations`);
+    } else {
+      console.log('[DB SCHEMA] BEFORE MIGRATION: schema already matches the project');
+    }
+
+    console.log('[DB SCHEMA] Applying missing tables, columns, indexes, and default rows...');
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS app_schema_migrations (
+        version INTEGER PRIMARY KEY,
+        name TEXT NOT NULL,
+        applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    for (const migration of migrations) {
+      for (const statement of migration.statements) {
+        await client.query(statement);
+      }
+      await client.query(
+        `INSERT INTO app_schema_migrations (version, name)
+         VALUES ($1, $2)
+         ON CONFLICT (version) DO UPDATE SET name = EXCLUDED.name`,
+        [migration.version, migration.name]
+      );
+      console.log(`Database schema checked: ${migration.name}`);
+    }
+
+    console.log('[DB SCHEMA] Verifying database structure after migration...');
+    const afterIssues = await inspectSchema(client, 'AFTER MIGRATION');
+    if (afterIssues.length > 0) {
+      console.error(`[DB SCHEMA] FAIL: ${afterIssues.length} schema mismatch(es) remain`);
+      throw new Error(`Schema verification failed: ${afterIssues.join('; ')}`);
+    }
+    console.log('[DB SCHEMA] PASS: all application tables and columns match the expected schema');
+  });
+}
+
+module.exports = migrateDatabase;

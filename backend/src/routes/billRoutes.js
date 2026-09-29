@@ -20,18 +20,32 @@ const { verifyToken, authorizeRoles } = require('../middleware/authMiddleware');
  *         application/json:
  *           schema:
  *             type: object
- *             required: [contract_id, month, year, water_unit, electric_unit, due_date]
+ *             required: [contract_id, month, year, water_old_meter, water_new_meter, electric_old_meter, electric_new_meter, due_date]
  *             properties:
  *               contract_id: { type: integer, example: 1 }
  *               month: { type: integer, example: 9 }
  *               year: { type: integer, example: 2026 }
- *               water_unit: { type: integer, example: 5 }
- *               electric_unit: { type: integer, example: 120 }
+ *               water_old_meter: { type: number, example: 100 }
+ *               water_new_meter: { type: number, example: 105 }
+ *               electric_old_meter: { type: number, example: 1000 }
+ *               electric_new_meter: { type: number, example: 1120 }
  *               due_date: { type: string, example: "2026-09-05" }
  *     responses:
  *       201: { description: "Bill created" }
+ * /api/bills/last-meter/{contract_id}:
+ *   get:
+ *     summary: ดึงเลขมิเตอร์ล่าสุดของสัญญา
+ *     tags: [Bills]
+ *     parameters:
+ *       - in: path
+ *         name: contract_id
+ *         required: true
+ *         schema: { type: integer }
+ *     responses:
+ *       200: { description: "Last meter readings" }
  */
-router.get('/', verifyToken, billController.getBills);
+router.get('/last-meter/:contract_id', verifyToken, authorizeRoles('admin'), billController.getLastMeter);
+router.get('/', verifyToken, authorizeRoles('admin'), billController.getBills);
 router.post('/', verifyToken, authorizeRoles('admin'), billController.createBill);
 
 module.exports = router;

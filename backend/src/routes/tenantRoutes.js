@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const tenantController = require('../controllers/tenantController');
-const { verifyToken } = require('../middleware/authMiddleware');
+const { verifyToken, authorizeRoles } = require('../middleware/authMiddleware');
 
 /**
  * @openapi
@@ -48,10 +48,11 @@ const { verifyToken } = require('../middleware/authMiddleware');
 router.get('/me', verifyToken, tenantController.getMyProfileAndContract);
 router.get('/my-bills', verifyToken, tenantController.getMyBills);
 router.put('/update-profile', verifyToken, tenantController.updateMyProfile);
-router.get('/available-tenants', verifyToken, tenantController.getAvailableTenants);
+router.put('/admin/tenants/:id', verifyToken, authorizeRoles('admin'), tenantController.updateTenantProfile);
+router.get('/available-tenants', verifyToken, authorizeRoles('admin'), tenantController.getAvailableTenants);
 router.post('/upload-slip', verifyToken, tenantController.uploadSlip);
 
-router.get('/pending-kyc', verifyToken, tenantController.getPendingKYC);
-router.post('/verify-kyc', verifyToken, tenantController.verifyKYC);
+router.get('/pending-kyc', verifyToken, authorizeRoles('admin'), tenantController.getPendingKYC);
+router.post('/verify-kyc', verifyToken, authorizeRoles('admin'), tenantController.verifyKYC);
 
 module.exports = router;

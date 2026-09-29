@@ -32,31 +32,82 @@ exports.getRooms = async (req, res) => {
 };
 
 exports.createRoom = async (req, res) => {
-  const { room_number, floor, room_type, base_price, status } = req.body;
+  const { room_number, floor, room_type, status = 'vacant' } = req.body || {};
+
   try {
-    const result = await db.query(
-      'INSERT INTO m_rooms (room_number, floor, room_type, base_price, status) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-      [room_number, floor, room_type || 'Standard', base_price, status || 'vacant']
+    // 1. ตรวจสอบว่ามีห้องหมายเลขนี้อยู่แล้วหรือไม่
+    const existingRoom = await db.query(
+      'SELECT room_id FROM m_rooms WHERE room_number = $1',
+      [room_number]
     );
-    res.status(201).json({ message: 'Room created successfully', room: result.rows[0] });
+
+    if (existingRoom.rows.length > 0) {
+      return res.status(400).json({ 
+        error: `ห้องหมายเลข ${room_number} มีอยู่ในระบบแล้ว ไม่สามารถเพิ่มซ้ำได้` 
+      });
+    }
+
+    const roomTypeResult = await db.query(
+      'SELECT base_price FROM m_room_types WHERE room_type = $1',
+      [room_type]
+    );
+    if (roomTypeResult.rows.length === 0) {
+      return res.status(400).json({ error: 'กรุณาเลือกประเภทห้องที่ตั้งค่าไว้แล้ว' });
+    }
+
+    // 2. บันทึกห้องพักใหม่
+    const insertQuery = `
+      INSERT INTO m_rooms (room_number, floor, room_type, base_price, status)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING *;
+    `;
+    const result = await db.query(insertQuery, [
+      room_number,
+      floor,
+      room_type,
+      roomTypeResult.rows[0].base_price,
+      status
+    ]);
+
+    res.status(201).json({
+      message: 'เพิ่มห้องพักสำเร็จ',
+      room: result.rows[0]
+    });
   } catch (err) {
+    console.error('Error in createRoom:', err);
+    // ดักกรณีชน UNIQUE constraint ของ Postgres
+    if (err.code === '23505') {
+      return res.status(400).json({ 
+        error: `ห้องหมายเลข ${room_number} มีอยู่ในระบบแล้ว` 
+      });
+    }
     res.status(500).json({ error: err.message });
   }
 };
 
 exports.updateRoom = async (req, res) => {
   const { id } = req.params;
-  const { room_number, floor, room_type, base_price, status } = req.body;
+  const { room_number, floor, room_type, status } = req.body || {};
   try {
+    const roomTypeResult = await db.query(
+      'SELECT base_price FROM m_room_types WHERE room_type = $1',
+      [room_type]
+    );
+    if (roomTypeResult.rows.length === 0) {
+      return res.status(400).json({ error: 'กรุณาเลือกประเภทห้องที่ตั้งค่าไว้แล้ว' });
+    }
     const result = await db.query(
       `UPDATE m_rooms 
        SET room_number = $1, floor = $2, room_type = $3, base_price = $4, status = $5 
        WHERE room_id = $6 RETURNING *`,
-      [room_number, floor, room_type, base_price, status, id]
+      [room_number, floor, room_type, roomTypeResult.rows[0].base_price, status, id]
     );
     if (result.rows.length === 0) return res.status(404).json({ message: 'Room not found' });
     res.json({ message: 'Room updated successfully', room: result.rows[0] });
   } catch (err) {
+    if (err.code === '23505') {
+      return res.status(400).json({ error: `ห้องหมายเลข ${room_number} มีอยู่ในระบบแล้ว` });
+    }
     res.status(500).json({ error: err.message });
   }
 };

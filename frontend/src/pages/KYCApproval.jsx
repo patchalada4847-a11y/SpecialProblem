@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { ShieldCheck, Check, X, Image as ImageIcon } from 'lucide-react';
 import api from '../api/axios';
+import useToast from '../components/useToast';
 
 export default function KYCApproval() {
+  const notify = useToast();
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [viewDoc, setViewDoc] = useState(null);
@@ -28,11 +30,11 @@ export default function KYCApproval() {
 
     try {
       await api.post('/tenant/verify-kyc', { user_id: userId, status });
-      alert(`ดำเนินการ${actionText}สำเร็จ`);
+      notify(`ดำเนินการ${actionText}สำเร็จ`, 'success');
       setViewDoc(null);
       fetchKYC();
     } catch (err) {
-      alert('เกิดข้อผิดพลาด');
+      notify('เกิดข้อผิดพลาด', 'error');
     }
   };
 

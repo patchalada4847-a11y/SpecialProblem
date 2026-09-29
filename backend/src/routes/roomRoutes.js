@@ -22,12 +22,11 @@ const { verifyToken, authorizeRoles } = require('../middleware/authMiddleware');
  *         application/json:
  *           schema:
  *             type: object
- *             required: [room_number, floor, base_price]
+ *             required: [room_number, floor, room_type]
  *             properties:
  *               room_number: { type: string, example: "101" }
  *               floor: { type: integer, example: 1 }
  *               room_type: { type: string, example: "Air Conditioner" }
- *               base_price: { type: number, example: 3500 }
  *               status: { type: string, enum: [vacant, occupied, maintenance], example: "vacant" }
  *     responses:
  *       201: { description: "Room created" }
@@ -53,7 +52,6 @@ const { verifyToken, authorizeRoles } = require('../middleware/authMiddleware');
  *               room_number: { type: string, example: "101" }
  *               floor: { type: integer, example: 1 }
  *               room_type: { type: string, example: "Air Conditioner" }
- *               base_price: { type: number, example: 3800 }
  *               status: { type: string, example: "vacant" }
  *     responses:
  *       200: { description: "Room updated" }

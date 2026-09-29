@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { UserPlus, Building, UploadCloud, FileCheck } from 'lucide-react';
+import { UserPlus, UploadCloud, FileCheck } from 'lucide-react';
+import dormitoryImage from '../assets/dormitory.svg';
 import api from '../api/axios';
+import useToast from '../components/useToast';
 
 export default function Register() {
+  const notify = useToast();
   const [form, setForm] = useState({
     username: '',
     password: '',
@@ -23,7 +26,7 @@ export default function Register() {
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
-      alert('ขนาดไฟล์ต้องไม่เกิน 5MB');
+      notify('ขนาดไฟล์ต้องไม่เกิน 5MB', 'error');
       return;
     }
 
@@ -47,7 +50,7 @@ export default function Register() {
 
     try {
       const res = await api.post('/auth/register', form);
-      alert(res.data.message || 'ลงทะเบียนสำเร็จ');
+      notify(res.data.message || 'ลงทะเบียนสำเร็จ', 'success');
       navigate('/login');
     } catch (err) {
       setError(err.response?.data?.error || err.response?.data?.message || 'ไม่สามารถลงทะเบียนได้');
@@ -57,14 +60,16 @@ export default function Register() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-      <div className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden p-8">
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-14 h-14 bg-indigo-100 rounded-full mb-3">
-            <Building className="text-indigo-600" size={28} />
+    <div className="auth-screen min-h-screen flex items-center justify-center p-4">
+      <div className="auth-panel w-full max-w-md border border-white/60 p-8">
+        <div className="mb-6 flex min-h-24 items-end gap-3 text-left">
+          <div className="inline-flex h-12 w-12 items-center justify-center border border-white/70 bg-white/75 backdrop-blur">
+            <img src={dormitoryImage} alt="" className="h-10 w-10 object-cover" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-800">ลงทะเบียนเข้าใช้งาน</h2>
-          <p className="text-xs text-gray-500 mt-1">กรอกข้อมูลและแนบเอกสารเพื่อรอการอนุมัติ (KYC)</p>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-teal-800">Residence Management</p>
+            <h2 className="text-2xl font-bold text-gray-800">ลงทะเบียนเข้าใช้งาน</h2>
+          </div>
         </div>
 
         {error && (

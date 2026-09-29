@@ -12,6 +12,8 @@ const billRoutes = require('./routes/billRoutes');
 const transactionRoutes = require('./routes/transactionRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const tenantRoutes = require('./routes/tenantRoutes');
+const settingsRoutes = require('./routes/settingsRoutes');
+const migrateDatabase = require('./config/migrateDatabase');
 
 const app = express();
 
@@ -30,12 +32,21 @@ app.use('/api/bills', billRoutes);
 app.use('/api/transactions', transactionRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/tenant', tenantRoutes);
+app.use('/api/settings', settingsRoutes);
 
 app.get('/', (req, res) => {
   res.send('Dormitory Management API Running... Go to <a href="/api-docs">/api-docs</a>');
 });
 
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+migrateDatabase()
+  .then(() => {
+    console.log('Database schema is up to date');
+    app.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error('Failed to apply database schema migrations:', err);
+    process.exit(1);
+  });

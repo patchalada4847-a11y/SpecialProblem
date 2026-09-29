@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Building, User, Edit2, X, FileText, CheckCircle, Clock, UploadCloud, Image as ImageIcon } from 'lucide-react';
 import api from '../api/axios';
+import useToast from '../components/useToast';
 
 export default function TenantDashboard() {
+  const notify = useToast();
   const [profile, setProfile] = useState(null);
   const [bills, setBills] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -44,11 +46,11 @@ export default function TenantDashboard() {
     e.preventDefault();
     try {
       await api.put('/tenant/update-profile', editForm);
-      alert('แก้ไขข้อมูลส่วนตัวสำเร็จ');
+      notify('แก้ไขข้อมูลส่วนตัวสำเร็จ', 'success');
       setShowEditModal(false);
       fetchData();
     } catch (err) {
-      alert(err.response?.data?.error || 'ไม่สามารถแก้ไขข้อมูลได้');
+      notify(err.response?.data?.error || 'ไม่สามารถแก้ไขข้อมูลได้', 'error');
     }
   };
 
@@ -58,7 +60,7 @@ export default function TenantDashboard() {
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
-      alert('ขนาดไฟล์รูปต้องไม่เกิน 5MB');
+      notify('ขนาดไฟล์รูปต้องไม่เกิน 5MB', 'error');
       return;
     }
 
@@ -70,10 +72,10 @@ export default function TenantDashboard() {
           bill_id: billId,
           slip_image: reader.result
         });
-        alert('อัปโหลดสลิปสำเร็จ รอแอดมินตรวจสอบ');
+        notify('อัปโหลดสลิปสำเร็จ รอแอดมินตรวจสอบ', 'success');
         fetchData();
       } catch (err) {
-        alert(err.response?.data?.error || 'อัปโหลดสลิปไม่สำเร็จ');
+        notify(err.response?.data?.error || 'อัปโหลดสลิปไม่สำเร็จ', 'error');
       } finally {
         setUploadingBillId(null);
       }
@@ -118,6 +120,9 @@ export default function TenantDashboard() {
               <p><span className="font-semibold text-gray-700">ประเภทห้อง:</span> {profile.room_type}</p>
               <p><span className="font-semibold text-gray-700">ค่าเช่า:</span> ฿{Number(profile.base_price || 0).toLocaleString()} / เดือน</p>
               <p><span className="font-semibold text-gray-700">เงินประกัน:</span> ฿{Number(profile.deposit || 0).toLocaleString()}</p>
+              <p><span className="font-semibold text-gray-700">วันเริ่มสัญญา:</span> {profile.start_date ? new Date(profile.start_date).toLocaleDateString('th-TH') : '-'}</p>
+              <p><span className="font-semibold text-gray-700">วันสิ้นสุดสัญญา:</span> {profile.end_date ? new Date(profile.end_date).toLocaleDateString('th-TH') : '-'}</p>
+              <p><span className="font-semibold text-gray-700">สถานะสัญญา:</span> {profile.contract_status || '-'}</p>
             </div>
           ) : (
             <p className="text-sm text-gray-400">ยังไม่มีสัญญาเช่าที่ใช้งานอยู่</p>
@@ -149,8 +154,14 @@ export default function TenantDashboard() {
                   <tr key={b.bill_id} className="border-b hover:bg-gray-50">
                     <td className="p-3 font-semibold text-gray-800">{b.month}/{b.year}</td>
                     <td className="p-3">฿{Number(b.rent_amount || 0).toLocaleString()}</td>
-                    <td className="p-3">฿{Number(b.water_amount || 0).toLocaleString()} ({b.water_unit} หน่วย)</td>
-                    <td className="p-3">฿{Number(b.electric_amount || 0).toLocaleString()} ({b.electric_unit} หน่วย)</td>
+                    <td className="p-3">
+                      ฿{Number(b.water_amount || 0).toLocaleString()} ({b.water_unit} หน่วย)
+                      <span className="block text-xs text-gray-400">{b.water_old_meter ?? 0} → {b.water_new_meter ?? '-'}</span>
+                    </td>
+                    <td className="p-3">
+                      ฿{Number(b.electric_amount || 0).toLocaleString()} ({b.electric_unit} หน่วย)
+                      <span className="block text-xs text-gray-400">{b.electric_old_meter ?? 0} → {b.electric_new_meter ?? '-'}</span>
+                    </td>
                     <td className="p-3 font-semibold text-gray-800">฿{Number(b.total_amount || 0).toLocaleString()}</td>
                     <td className="p-3">
                       {b.payment_status === 'paid' ? (

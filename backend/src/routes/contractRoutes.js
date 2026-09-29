@@ -53,6 +53,9 @@ const { verifyToken, authorizeRoles } = require('../middleware/authMiddleware');
  *             type: object
  *             properties:
  *               status: { type: string, enum: [active, terminated, expired], example: "terminated" }
+ *               start_date: { type: string, example: "2026-09-01" }
+ *               end_date: { type: string, example: "2027-08-31" }
+ *               deposit: { type: number, example: 7000 }
  *     responses:
  *       200: { description: "Contract status updated" }
  */

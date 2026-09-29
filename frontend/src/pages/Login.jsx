@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { LogIn, Building, Lock, User, UserPlus } from 'lucide-react';
+import { LogIn, Lock, User, UserPlus } from 'lucide-react';
+import dormitoryImage from '../assets/dormitory.svg';
 import api from '../api/axios';
 
 export default function Login() {
@@ -42,15 +43,17 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4">
-      <div className="bg-white w-full max-w-md rounded-2xl shadow-xl overflow-hidden p-8">
+    <div className="auth-screen min-h-screen flex items-center justify-center p-4">
+      <div className="auth-panel w-full max-w-md border border-white/60 p-8">
         {/* Header Section */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 bg-indigo-100 rounded-full mb-4">
-            <Building className="text-indigo-600" size={32} />
+        <div className="mb-8 flex min-h-24 items-end gap-3 text-left">
+          <div className="inline-flex h-12 w-12 items-center justify-center border border-white/70 bg-white/75 backdrop-blur">
+            <img src={dormitoryImage} alt="" className="h-10 w-10 object-cover" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-800">เข้าสู่ระบบหอพัก</h2>
-          <p className="text-sm text-gray-500 mt-1">Dormitory Management System</p>
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-teal-800">Residence Management</p>
+            <h2 className="text-2xl font-bold text-slate-800">เข้าสู่ระบบหอพัก</h2>
+          </div>
         </div>
 
         {/* Error Alert */}

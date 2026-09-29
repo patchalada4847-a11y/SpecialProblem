@@ -49,6 +49,37 @@ exports.getMyProfileAndContract = async (req, res) => {
   }
 };
 
+exports.updateTenantProfile = async (req, res) => {
+  const { id } = req.params;
+  const { first_name, last_name, phone } = req.body || {};
+
+  if (
+    !Number.isInteger(Number(id)) ||
+    typeof first_name !== 'string' ||
+    !first_name.trim() ||
+    typeof last_name !== 'string' ||
+    !last_name.trim() ||
+    (phone != null && typeof phone !== 'string')
+  ) {
+    return res.status(400).json({ error: 'กรุณาระบุชื่อและนามสกุลให้ถูกต้อง' });
+  }
+
+  try {
+    const result = await db.query(
+      `UPDATE m_users SET first_name = $1, last_name = $2, phone = $3
+       WHERE user_id = $4 AND role = 'tenant'
+       RETURNING user_id, first_name, last_name, phone`,
+      [first_name.trim(), last_name.trim(), phone?.trim() || null, id]
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'ไม่พบข้อมูลผู้เช่า' });
+    }
+    res.json(result.rows[0]);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 // 2. ดึงประวัติบิลของผู้เช่า
 exports.getMyBills = async (req, res) => {
   try {
@@ -62,13 +93,18 @@ exports.getMyBills = async (req, res) => {
         b.month,
         b.year,
         b.water_unit,
+        b.water_old_meter,
+        b.water_new_meter,
         b.electric_unit,
+        b.electric_old_meter,
+        b.electric_new_meter,
         b.water_amount,
         b.electric_amount,
         b.rent_amount,
         b.total_amount,
         b.payment_status,
         b.due_date,
+        b.slip_image,
         b.created_at
       FROM t_bills b
       INNER JOIN m_contracts c ON b.contract_id = c.contract_id

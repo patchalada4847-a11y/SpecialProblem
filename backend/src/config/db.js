@@ -12,10 +12,30 @@ const pool = new Pool({
   }
 });
 
+pool.on('error', (err) => {
+  console.error('Unexpected database pool error:', err);
+});
+
 pool.on('connect', () => {
   console.log('Connected to the Neon PostgreSQL database');
 });
 
+const withTransaction = async (callback) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const result = await callback(client);
+    await client.query('COMMIT');
+    return result;
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+};
+
 module.exports = {
   query: (text, params) => pool.query(text, params),
+  withTransaction,
 };

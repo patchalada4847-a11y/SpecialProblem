@@ -1,18 +1,28 @@
 import { useState, useEffect } from 'react';
-import { Plus, Home, X, Trash2, Eye, User, Phone, Calendar, ShieldCheck } from 'lucide-react';
+import { Plus, Home, X, Trash2, Eye, User, Phone, Calendar, ShieldCheck, Search, Edit2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import api from '../api/axios';
+import useToast from '../components/useToast';
 
 export default function Rooms() {
+  const notify = useToast();
   const [rooms, setRooms] = useState([]);
+  const [roomTypes, setRoomTypes] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState(null); // เก็บห้องที่เลือกดูรายละเอียด
-  const [form, setForm] = useState({ room_number: '', floor: 1, room_type: 'Standard', base_price: '', status: 'vacant' });
+  const [editingRoom, setEditingRoom] = useState(null);
+  const [search, setSearch] = useState('');
+  const [form, setForm] = useState({ room_number: '', floor: 1, room_type: '', status: 'vacant' });
 
   const fetchRooms = async () => {
     try {
-      const res = await api.get('/rooms');
-      setRooms(res.data);
+      const [roomsRes, settingsRes] = await Promise.all([
+        api.get('/rooms'),
+        api.get('/settings')
+      ]);
+      setRooms(roomsRes.data);
+      setRoomTypes(settingsRes.data.room_types);
     } catch (err) {
       console.error(err);
     } finally {
@@ -27,19 +37,35 @@ export default function Rooms() {
   const handleCreateRoom = async (e) => {
     e.preventDefault();
     try {
-      await api.post('/rooms', {
+      const payload = {
         room_number: form.room_number,
         floor: Number(form.floor),
         room_type: form.room_type,
-        base_price: Number(form.base_price),
         status: form.status
-      });
+      };
+      if (editingRoom) {
+        await api.put(`/rooms/${editingRoom.room_id}`, payload);
+      } else {
+        await api.post('/rooms', payload);
+      }
       setShowModal(false);
-      setForm({ room_number: '', floor: 1, room_type: 'Standard', base_price: '', status: 'vacant' });
+      setEditingRoom(null);
+      setForm({ room_number: '', floor: 1, room_type: '', status: 'vacant' });
       fetchRooms();
     } catch (err) {
-      alert(err.response?.data?.error || 'ไม่สามารถเพิ่มห้องพักได้');
+      notify(err.response?.data?.error || 'ไม่สามารถเพิ่มห้องพักได้', 'error');
     }
+  };
+
+  const handleEditRoom = (room) => {
+    setEditingRoom(room);
+    setForm({
+      room_number: room.room_number,
+      floor: room.floor,
+      room_type: room.room_type,
+      status: room.status
+    });
+    setShowModal(true);
   };
 
   const handleDeleteRoom = async (id) => {
@@ -48,9 +74,14 @@ export default function Rooms() {
       await api.delete(`/rooms/${id}`);
       fetchRooms();
     } catch (err) {
-      alert(err.response?.data?.error || 'ไม่สามารถลบห้องพักได้');
+      notify(err.response?.data?.error || 'ไม่สามารถลบห้องพักได้', 'error');
     }
   };
+
+  const filteredRooms = rooms.filter((room) => (
+    [room.room_number, room.floor, room.room_type, room.status, room.first_name, room.last_name]
+      .some((value) => String(value || '').toLowerCase().includes(search.trim().toLowerCase()))
+  ));
 
   return (
     <div className="space-y-6">
@@ -68,6 +99,15 @@ export default function Rooms() {
       </div>
 
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-4">
+        <div className="relative max-w-sm">
+          <Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="ค้นหาห้อง เลขที่ ชั้น ประเภท หรือผู้เช่า"
+            className="w-full border p-2.5 pl-9 rounded-lg text-sm"
+          />
+        </div>
         {loading ? (
           <p className="text-center py-4 text-gray-500">กำลังโหลดข้อมูล...</p>
         ) : (
@@ -84,7 +124,7 @@ export default function Rooms() {
               </tr>
             </thead>
             <tbody>
-              {rooms.map((room) => (
+              {filteredRooms.map((room) => (
                 <tr key={room.room_id} className="border-b hover:bg-gray-50">
                   <td className="p-3 font-semibold text-gray-800 flex items-center gap-2">
                     <Home size={16} className="text-indigo-500" /> ห้อง {room.room_number}
@@ -115,6 +155,13 @@ export default function Rooms() {
                       >
                         <Eye size={18} />
                       </button>
+                      <button
+                        onClick={() => handleEditRoom(room)}
+                        className="text-amber-600 hover:bg-amber-50 p-1.5 rounded-md transition"
+                        title="แก้ไขข้อมูลห้อง"
+                      >
+                        <Edit2 size={18} />
+                      </button>
                       <button 
                         onClick={() => handleDeleteRoom(room.room_id)} 
                         className="text-red-500 hover:bg-red-50 p-1.5 rounded-md transition"
@@ -131,13 +178,13 @@ export default function Rooms() {
         )}
       </div>
 
-      {/* Modal เพิ่มห้องพักใหม่ */}
+      {/* Modal เพิ่มหรือแก้ไขห้องพัก */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-xl max-w-md w-full p-6 space-y-4">
             <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="font-bold text-lg text-gray-800">เพิ่มห้องพักใหม่</h3>
-              <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+              <h3 className="font-bold text-lg text-gray-800">{editingRoom ? 'แก้ไขข้อมูลห้อง' : 'เพิ่มห้องพักใหม่'}</h3>
+              <button onClick={() => { setShowModal(false); setEditingRoom(null); }} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
             </div>
             <form onSubmit={handleCreateRoom} className="space-y-4">
               <div>
@@ -146,17 +193,47 @@ export default function Rooms() {
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">ชั้น</label>
-                <input type="number" required value={form.floor} onChange={(e) => setForm({...form, floor: e.target.value})} className="w-full border p-2 rounded-lg" placeholder="1" />
+                <input type="number" min="1" required value={form.floor} onChange={(e) => setForm({...form, floor: e.target.value})} className="w-full border p-2 rounded-lg" placeholder="1" />
               </div>
               <div>
                 <label className="block text-sm font-medium mb-1">ประเภทห้อง</label>
-                <input type="text" required value={form.room_type} onChange={(e) => setForm({...form, room_type: e.target.value})} className="w-full border p-2 rounded-lg" placeholder="Standard / Air / Fan" />
+                <select
+                  required
+                  value={form.room_type}
+                  onChange={(e) => setForm({ ...form, room_type: e.target.value })}
+                  className="w-full border p-2 rounded-lg"
+                >
+                  <option value="">-- เลือกประเภทห้อง --</option>
+                  {roomTypes.map((type) => (
+                    <option key={type.type_id} value={type.room_type}>
+                      {type.room_type} - ฿{Number(type.base_price).toLocaleString()}/เดือน
+                    </option>
+                  ))}
+                </select>
               </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">ราคาพื้นฐาน (base_price)</label>
-                <input type="number" required value={form.base_price} onChange={(e) => setForm({...form, base_price: e.target.value})} className="w-full border p-2 rounded-lg" placeholder="3500" />
-              </div>
-              <button type="submit" className="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700">บันทึก</button>
+              {roomTypes.length === 0 ? (
+                <p className="text-sm text-amber-700">
+                  ต้องตั้งค่าประเภทห้องก่อน{' '}
+                  <Link to="/settings" className="underline font-medium" onClick={() => setShowModal(false)}>
+                    ไปหน้าตั้งค่า
+                  </Link>
+                </p>
+              ) : (
+                <p className="text-sm text-gray-500">
+                  ค่าเช่าเริ่มต้น: ฿{Number(roomTypes.find((type) => type.room_type === form.room_type)?.base_price || 0).toLocaleString()} / เดือน
+                </p>
+              )}
+              {editingRoom && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">สถานะห้อง</label>
+                  <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="w-full border p-2 rounded-lg">
+                    <option value="vacant">ว่าง</option>
+                    <option value="occupied">มีผู้เช่า</option>
+                    <option value="maintenance">ปิดปรับปรุง</option>
+                  </select>
+                </div>
+              )}
+              <button type="submit" disabled={roomTypes.length === 0} className="w-full bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50">บันทึก</button>
             </form>
           </div>
         </div>
