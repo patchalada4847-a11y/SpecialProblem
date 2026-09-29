@@ -321,6 +321,49 @@ body [class~="hover:text-indigo-400"]:hover {
   }
 }
 
+@page {
+  size: A4;
+  margin: 16mm;
+}
+
+@media print {
+  html,
+  body,
+  #root {
+    min-height: 0;
+    background: #fff !important;
+  }
+
+  aside,
+  .bill-document-actions,
+  .toast-stack {
+    display: none !important;
+  }
+
+  main {
+    overflow: visible !important;
+    padding: 0 !important;
+    border: 0 !important;
+  }
+
+  main [class~="bg-white"] {
+    border: 0 !important;
+    background: #fff !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+  }
+
+  .bill-document-wrap {
+    max-width: none !important;
+  }
+
+  .bill-document {
+    max-width: none !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+  }
+}
+
 @media (max-width: 767px) {
   .toast-stack {
     top: 12px;

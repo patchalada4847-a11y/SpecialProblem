@@ -1,28 +1,33 @@
-import { useEffect, useState } from 'react';
-import { ShieldCheck, Check, X, Image as ImageIcon } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Check, X, Image as ImageIcon } from 'lucide-react';
 import api from '../api/axios';
 import useToast from '../components/useToast';
+import Pagination from '../components/Pagination';
 
 export default function KYCApproval() {
   const notify = useToast();
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);
   const [viewDoc, setViewDoc] = useState(null);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
 
-  const fetchKYC = async () => {
+  const fetchKYC = useCallback(async () => {
     try {
-      const res = await api.get('/tenant/pending-kyc');
-      setList(res.data);
+      const res = await api.get('/tenant/pending-kyc', { params: { page, page_size: pageSize } });
+      setList(res.data.items);
+      setTotal(res.data.pagination.total);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, pageSize]);
 
   useEffect(() => {
-    fetchKYC();
-  }, []);
+    Promise.resolve().then(fetchKYC);
+  }, [fetchKYC]);
 
   const handleVerify = async (userId, status) => {
     const actionText = status === 'approved' ? 'อนุมัติ' : 'ปฏิเสธ';
@@ -33,7 +38,7 @@ export default function KYCApproval() {
       notify(`ดำเนินการ${actionText}สำเร็จ`, 'success');
       setViewDoc(null);
       fetchKYC();
-    } catch (err) {
+    } catch {
       notify('เกิดข้อผิดพลาด', 'error');
     }
   };
@@ -48,7 +53,7 @@ export default function KYCApproval() {
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
         {loading ? (
           <p className="text-center py-6 text-gray-500">กำลังโหลดข้อมูล...</p>
-        ) : list.length === 0 ? (
+        ) : total === 0 ? (
           <div className="text-center py-8 text-gray-400">ไม่มีรายการที่รอตรวจสอบ</div>
         ) : (
           <table className="w-full text-left text-sm text-gray-600">
@@ -97,6 +102,15 @@ export default function KYCApproval() {
               ))}
             </tbody>
           </table>
+        )}
+        {!loading && total > 0 && (
+          <Pagination
+            page={page}
+            pageSize={pageSize}
+            total={total}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          />
         )}
       </div>
 

@@ -128,41 +128,75 @@ exports.deleteExpense = async (req, res) => {
 
 // ชำระเงินบิล (Pay Bill) -> เปลี่ยนสถานะบิลเป็น paid + บันทึกรายรับอัตโนมัติ
 exports.payBill = async (req, res) => {
-  const { bill_id } = req.body;
+  const billId = Number(req.body?.bill_id);
+  const paymentDate = req.body?.payment_date || req.body?.transaction_date || (() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  })();
+  const paymentMethod = req.body?.payment_method || 'other';
+  const reference = req.body?.payment_reference;
+  const note = req.body?.notes;
+
+  if (!Number.isInteger(billId) || billId < 1) {
+    return res.status(400).json({ error: 'รหัสบิลไม่ถูกต้อง' });
+  }
+  if (!isValidDate(paymentDate)) {
+    return res.status(400).json({ error: 'วันที่รับชำระไม่ถูกต้อง' });
+  }
+  if (!['cash', 'bank_transfer', 'other'].includes(paymentMethod)) {
+    return res.status(400).json({ error: 'วิธีชำระเงินไม่ถูกต้อง' });
+  }
+  if (
+    (reference != null && (typeof reference !== 'string' || reference.trim().length > 200)) ||
+    (note != null && (typeof note !== 'string' || note.trim().length > 1000))
+  ) {
+    return res.status(400).json({ error: 'เลขอ้างอิงหรือหมายเหตุต้องไม่เกินความยาวที่กำหนด' });
+  }
 
   try {
-    const result = await db.query(`
-      WITH paid_bill AS (
-        UPDATE t_bills
-        SET payment_status = 'paid'
-        WHERE bill_id = $1 AND payment_status <> 'paid'
-        RETURNING bill_id, month, year, total_amount
-      )
-      INSERT INTO t_transactions (type, category, amount, description, transaction_date)
-      SELECT
-        'income',
-        'Rent Payment',
-        total_amount,
-        'ชำระบิลประจำเดือน ' || month || '/' || year || ' (Bill ID: ' || bill_id || ')',
-        CURRENT_DATE
-      FROM paid_bill
-      RETURNING *;
-    `, [bill_id]);
-
-    if (result.rows.length === 0) {
-      const billResult = await db.query(
-        'SELECT payment_status FROM t_bills WHERE bill_id = $1',
-        [bill_id]
+    const transaction = await db.withTransaction(async (client) => {
+      const billResult = await client.query(
+        `SELECT bill_id, month, year, total_amount, payment_status
+         FROM t_bills WHERE bill_id = $1 FOR UPDATE`,
+        [billId]
       );
-      if (billResult.rows.length === 0) {
-        return res.status(404).json({ message: 'Bill not found' });
-      }
-      return res.status(400).json({ message: 'This bill has already been paid' });
-    }
+      if (billResult.rows.length === 0) return { missing: true };
+      const bill = billResult.rows[0];
+      if (bill.payment_status === 'paid') return { alreadyPaid: true };
+      if (bill.payment_status !== 'pending') return { invalidStatus: true };
+
+      const updatedBill = await client.query(
+        `UPDATE t_bills SET payment_status = 'paid'
+         WHERE bill_id = $1 AND payment_status = 'pending'`,
+        [billId]
+      );
+      if (updatedBill.rowCount !== 1) return { invalidStatus: true };
+      const result = await client.query(
+        `INSERT INTO t_transactions
+           (type, category, amount, description, transaction_date,
+            payment_method, payment_reference, notes, bill_id)
+         VALUES ('income', 'Rent Payment', $1, $2, $3, $4, $5, $6, $7)
+         RETURNING *`,
+        [
+          bill.total_amount,
+          `ชำระบิลประจำเดือน ${bill.month}/${bill.year} (Bill ID: ${bill.bill_id})`,
+          paymentDate,
+          paymentMethod,
+          reference?.trim() || null,
+          note?.trim() || null,
+          bill.bill_id
+        ]
+      );
+      return { transaction: result.rows[0] };
+    });
+
+    if (transaction.missing) return res.status(404).json({ message: 'Bill not found' });
+    if (transaction.alreadyPaid) return res.status(400).json({ message: 'This bill has already been paid' });
+    if (transaction.invalidStatus) return res.status(400).json({ error: 'ไม่สามารถยืนยันการชำระบิลในสถานะนี้ได้' });
 
     res.status(200).json({
       message: 'Bill paid successfully',
-      transaction: result.rows[0]
+      transaction: transaction.transaction
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

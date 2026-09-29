@@ -3,7 +3,8 @@ const db = require('./db');
 const expectedColumns = {
   m_users: {
     user_id: 'id', username: 'text', password: 'text', first_name: 'text', last_name: 'text',
-    phone: 'text', role: 'text', status: 'text', kyc_document: 'text', created_at: 'timestamp'
+    phone: 'text', role: 'text', status: 'text', kyc_document: 'text',
+    is_primary_admin: 'boolean', created_at: 'timestamp'
   },
   m_rooms: {
     room_id: 'id', room_number: 'text', floor: 'integer', room_type: 'text',
@@ -18,14 +19,18 @@ const expectedColumns = {
     water_old_meter: 'numeric', water_new_meter: 'numeric', water_unit: 'numeric',
     water_amount: 'numeric', electric_old_meter: 'numeric', electric_new_meter: 'numeric',
     electric_unit: 'numeric', electric_amount: 'numeric', total_amount: 'numeric',
-    payment_status: 'text', due_date: 'date', slip_image: 'text', created_at: 'timestamp'
+    payment_status: 'text', due_date: 'date', slip_image: 'text',
+    extra_charges: 'jsonb', created_at: 'timestamp'
   },
   t_transactions: {
     transaction_id: 'id', type: 'text', category: 'text', amount: 'numeric',
-    description: 'text', transaction_date: 'date'
+    description: 'text', transaction_date: 'date', payment_method: 'text',
+    payment_reference: 'text', notes: 'text', bill_id: 'id'
   },
   m_billing_settings: {
-    setting_id: 'integer', water_rate: 'numeric', electric_rate: 'numeric'
+    setting_id: 'integer', water_rate: 'numeric', electric_rate: 'numeric',
+    dormitory_name: 'text', dormitory_address: 'text', contact_phone: 'text',
+    payment_instructions: 'text'
   },
   m_room_types: {
     type_id: 'id', room_type: 'text', base_price: 'numeric'
@@ -40,10 +45,12 @@ function typeMatches(expected, actual) {
   if (expected === 'text') {
     return ['text', 'character varying', 'character'].includes(actual.data_type);
   }
+  if (expected === 'jsonb') return actual.data_type === 'jsonb';
   if (expected === 'numeric') {
     return ['numeric', 'smallint', 'integer', 'bigint', 'real', 'double precision'].includes(actual.data_type);
   }
   if (expected === 'date') return actual.data_type === 'date';
+  if (expected === 'boolean') return actual.data_type === 'boolean';
   if (expected === 'timestamp') {
     return ['timestamp with time zone', 'timestamp without time zone'].includes(actual.data_type);
   }
@@ -243,6 +250,49 @@ const migrations = [
        WHERE room_type IS NOT NULL AND BTRIM(room_type) <> ''
        GROUP BY room_type
        ON CONFLICT (room_type) DO NOTHING`
+    ]
+  },
+  {
+    version: 2,
+    name: 'dormitory details and bill payment information',
+    statements: [
+      `ALTER TABLE m_billing_settings ADD COLUMN IF NOT EXISTS dormitory_name TEXT NOT NULL DEFAULT 'ระบบจัดการหอพัก'`,
+      `ALTER TABLE m_billing_settings ADD COLUMN IF NOT EXISTS dormitory_address TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE m_billing_settings ADD COLUMN IF NOT EXISTS contact_phone TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE m_billing_settings ADD COLUMN IF NOT EXISTS payment_instructions TEXT NOT NULL DEFAULT ''`,
+      `ALTER TABLE t_transactions ADD COLUMN IF NOT EXISTS payment_method TEXT`,
+      `ALTER TABLE t_transactions ADD COLUMN IF NOT EXISTS payment_reference TEXT`,
+      `ALTER TABLE t_transactions ADD COLUMN IF NOT EXISTS notes TEXT`,
+      `ALTER TABLE t_transactions ADD COLUMN IF NOT EXISTS bill_id BIGINT REFERENCES t_bills(bill_id)`,
+      'CREATE UNIQUE INDEX IF NOT EXISTS t_transactions_bill_id_migration_uidx ON t_transactions (bill_id) WHERE bill_id IS NOT NULL'
+    ]
+  },
+  {
+    version: 3,
+    name: 'primary admin account management',
+    statements: [
+      `ALTER TABLE m_users ADD COLUMN IF NOT EXISTS is_primary_admin BOOLEAN NOT NULL DEFAULT FALSE`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS m_users_single_primary_admin_migration_uidx
+       ON m_users (is_primary_admin) WHERE is_primary_admin = TRUE AND role = 'admin'`,
+      `UPDATE m_users
+       SET is_primary_admin = TRUE
+       WHERE user_id = (
+         SELECT user_id FROM m_users
+         WHERE role = 'admin' AND is_primary_admin = FALSE
+         ORDER BY user_id ASC
+         LIMIT 1
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM m_users WHERE role = 'admin' AND is_primary_admin = TRUE
+       )`
+    ]
+  },
+  {
+    version: 4,
+    name: 'itemized additional bill charges',
+    statements: [
+       `ALTER TABLE t_bills
+        ADD COLUMN IF NOT EXISTS extra_charges JSONB NOT NULL DEFAULT '[]'::jsonb`
     ]
   }
 ];

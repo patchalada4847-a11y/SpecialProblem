@@ -13,7 +13,6 @@ export default function Register() {
     first_name: '',
     last_name: '',
     phone: '',
-    role: 'tenant',
     kyc_document: ''
   });
   const [error, setError] = useState('');
@@ -40,7 +39,7 @@ export default function Register() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (form.role === 'tenant' && !form.kyc_document) {
+    if (!form.kyc_document) {
       setError('กรุณาแนบรูปภาพเอกสารยืนยันตัวตนหรือสัญญาเช่า');
       return;
     }

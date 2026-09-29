@@ -1,8 +1,10 @@
-import { useState, useEffect } from 'react';
-import { Plus, Home, X, Trash2, Eye, User, Phone, Calendar, ShieldCheck, Search, Edit2 } from 'lucide-react';
+import { useCallback, useState, useEffect } from 'react';
+import { Plus, Home, X, Trash2, Eye, User, Phone, Calendar, ShieldCheck, Search, Edit2, UserPlus } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../api/axios';
 import useToast from '../components/useToast';
+import Pagination from '../components/Pagination';
+import ContractAssignmentModal from '../components/ContractAssignmentModal';
 
 export default function Rooms() {
   const notify = useToast();
@@ -11,28 +13,42 @@ export default function Rooms() {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [selectedRoom, setSelectedRoom] = useState(null); // เก็บห้องที่เลือกดูรายละเอียด
+  const [assignmentRoom, setAssignmentRoom] = useState(null);
   const [editingRoom, setEditingRoom] = useState(null);
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [totalRooms, setTotalRooms] = useState(0);
   const [form, setForm] = useState({ room_number: '', floor: 1, room_type: '', status: 'vacant' });
 
-  const fetchRooms = async () => {
+  const fetchRoomTypes = useCallback(async () => {
     try {
-      const [roomsRes, settingsRes] = await Promise.all([
-        api.get('/rooms'),
-        api.get('/settings')
-      ]);
-      setRooms(roomsRes.data);
+      const settingsRes = await api.get('/settings');
       setRoomTypes(settingsRes.data.room_types);
+    } catch (err) {
+      console.error(err);
+    }
+  }, []);
+
+  const fetchRooms = useCallback(async () => {
+    try {
+      const roomsRes = await api.get('/rooms', { params: { page, page_size: pageSize, search } });
+      setRooms(roomsRes.data.items);
+      setTotalRooms(roomsRes.data.pagination.total);
     } catch (err) {
       console.error(err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [page, pageSize, search]);
 
   useEffect(() => {
-    fetchRooms();
-  }, []);
+    Promise.resolve().then(fetchRooms);
+  }, [fetchRooms]);
+
+  useEffect(() => {
+    Promise.resolve().then(fetchRoomTypes);
+  }, [fetchRoomTypes]);
 
   const handleCreateRoom = async (e) => {
     e.preventDefault();
@@ -78,11 +94,6 @@ export default function Rooms() {
     }
   };
 
-  const filteredRooms = rooms.filter((room) => (
-    [room.room_number, room.floor, room.room_type, room.status, room.first_name, room.last_name]
-      .some((value) => String(value || '').toLowerCase().includes(search.trim().toLowerCase()))
-  ));
-
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -103,7 +114,10 @@ export default function Rooms() {
           <Search size={17} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
             placeholder="ค้นหาห้อง เลขที่ ชั้น ประเภท หรือผู้เช่า"
             className="w-full border p-2.5 pl-9 rounded-lg text-sm"
           />
@@ -120,11 +134,11 @@ export default function Rooms() {
                 <th className="p-3">ราคา/เดือน</th>
                 <th className="p-3">สถานะ</th>
                 <th className="p-3">ผู้เช่าปัจจุบัน</th>
-                <th className="p-3 text-center">จัดการ</th>
+                <th className="p-3 text-left">จัดการ</th>
               </tr>
             </thead>
             <tbody>
-              {filteredRooms.map((room) => (
+              {rooms.map((room) => (
                 <tr key={room.room_id} className="border-b hover:bg-gray-50">
                   <td className="p-3 font-semibold text-gray-800 flex items-center gap-2">
                     <Home size={16} className="text-indigo-500" /> ห้อง {room.room_number}
@@ -146,8 +160,8 @@ export default function Rooms() {
                       <span className="text-gray-400 text-xs">- ไม่มีผู้เช่า -</span>
                     )}
                   </td>
-                  <td className="p-3">
-                    <div className="flex items-center justify-center gap-2">
+                  <td className="p-3 text-left">
+                    <div className="flex items-center justify-start gap-2">
                       <button 
                         onClick={() => setSelectedRoom(room)} 
                         className="text-indigo-600 hover:bg-indigo-50 p-1.5 rounded-md transition"
@@ -169,12 +183,32 @@ export default function Rooms() {
                       >
                         <Trash2 size={18} />
                       </button>
+                      {room.status === 'vacant' && (
+                        <button
+                          type="button"
+                          onClick={() => setAssignmentRoom(room)}
+                          className="rounded-md p-1.5 text-teal-700 transition hover:bg-teal-50"
+                          title="เลือกผู้เช่าและจัดสรรห้องนี้"
+                          aria-label={`จัดสรรห้อง ${room.room_number}`}
+                        >
+                          <UserPlus size={18} />
+                        </button>
+                      )}
                     </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        )}
+        {!loading && (
+          <Pagination
+            page={page}
+            pageSize={pageSize}
+            total={totalRooms}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          />
         )}
       </div>
 
@@ -305,6 +339,7 @@ export default function Rooms() {
                   ห้องนี้ยังว่างอยู่ ยังไม่มีสัญญาเช่า
                 </div>
               )}
+
             </div>
 
             <button
@@ -315,6 +350,14 @@ export default function Rooms() {
             </button>
           </div>
         </div>
+      )}
+
+      {assignmentRoom && (
+        <ContractAssignmentModal
+          initialRoom={assignmentRoom}
+          onClose={() => setAssignmentRoom(null)}
+          onAssigned={fetchRooms}
+        />
       )}
     </div>
   );

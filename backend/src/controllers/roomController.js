@@ -1,7 +1,13 @@
 const db = require('../config/db');
+const { parsePagination, respondWithPagination } = require('../utils/pagination');
 
 exports.getRooms = async (req, res) => {
   try {
+    const pagination = parsePagination(req.query);
+    const search = String(req.query.search || '').trim();
+    const status = String(req.query.status || '');
+    const where = `WHERE ($1 = '' OR CONCAT_WS(' ', r.room_number, r.floor, r.room_type, r.status, u.first_name, u.last_name) ILIKE '%' || $1 || '%')
+      AND ($2 = '' OR r.status = $2)`;
     const query = `
       SELECT 
         r.room_id,
@@ -22,10 +28,22 @@ exports.getRooms = async (req, res) => {
       FROM m_rooms r
       LEFT JOIN m_contracts c ON r.room_id = c.room_id AND c.status = 'active'
       LEFT JOIN m_users u ON c.tenant_id = u.user_id
-      ORDER BY r.floor ASC, r.room_number ASC;
+      ${where}
+      ORDER BY r.floor ASC, r.room_number ASC
+      ${pagination ? 'LIMIT $3 OFFSET $4' : ''};
     `;
-    const result = await db.query(query);
-    res.json(result.rows);
+    const params = pagination ? [search, status, pagination.pageSize, pagination.offset] : [search, status];
+    const result = await db.query(query, params);
+    if (!pagination) return res.json(result.rows);
+    const count = await db.query(
+      `SELECT COUNT(*) AS total
+       FROM m_rooms r
+       LEFT JOIN m_contracts c ON r.room_id = c.room_id AND c.status = 'active'
+       LEFT JOIN m_users u ON c.tenant_id = u.user_id
+       ${where}`,
+      [search, status]
+    );
+    respondWithPagination(req, res, result.rows, count.rows[0].total, pagination);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

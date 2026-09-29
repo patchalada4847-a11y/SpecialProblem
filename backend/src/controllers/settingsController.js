@@ -4,7 +4,9 @@ exports.getSettings = async (req, res) => {
   try {
     const [settingsResult, roomTypesResult] = await Promise.all([
       db.query(
-        'SELECT water_rate, electric_rate FROM m_billing_settings WHERE setting_id = 1'
+        `SELECT water_rate, electric_rate, dormitory_name, dormitory_address,
+                contact_phone, payment_instructions
+         FROM m_billing_settings WHERE setting_id = 1`
       ),
       db.query(
         'SELECT type_id, room_type, base_price FROM m_room_types ORDER BY room_type'
@@ -14,6 +16,40 @@ exports.getSettings = async (req, res) => {
       ...settingsResult.rows[0],
       room_types: roomTypesResult.rows
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+
+exports.updateDormitoryDetails = async (req, res) => {
+  const fields = [
+    ['dormitory_name', 'ชื่อหอพัก', 150],
+    ['dormitory_address', 'ที่อยู่', 500],
+    ['contact_phone', 'เบอร์โทรศัพท์', 50],
+    ['payment_instructions', 'คำแนะนำการชำระเงิน', 1000]
+  ];
+  const values = fields.map(([key]) => req.body?.[key]);
+  if (values.some((value, index) => (
+    typeof value !== 'string' ||
+    value.trim().length > fields[index][2] ||
+    (index === 0 && !value.trim())
+  ))) {
+    return res.status(400).json({ error: 'กรุณาตรวจสอบข้อมูลหอพักและความยาวของข้อความ' });
+  }
+
+  try {
+    const result = await db.query(
+      `UPDATE m_billing_settings
+       SET dormitory_name = $1, dormitory_address = $2,
+           contact_phone = $3, payment_instructions = $4
+       WHERE setting_id = 1
+       RETURNING dormitory_name, dormitory_address, contact_phone, payment_instructions`,
+      values.map((value) => value.trim())
+    );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'ไม่พบการตั้งค่าหอพัก' });
+    }
+    res.json(result.rows[0]);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

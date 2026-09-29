@@ -30,6 +30,14 @@ const { verifyToken, authorizeRoles } = require('../middleware/authMiddleware');
  *               electric_old_meter: { type: number, example: 1000 }
  *               electric_new_meter: { type: number, example: 1120 }
  *               due_date: { type: string, example: "2026-09-05" }
+ *               extra_charges:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   required: [description, amount]
+ *                   properties:
+ *                     description: { type: string, example: "ค่าที่จอดรถ" }
+ *                     amount: { type: number, example: 300 }
  *     responses:
  *       201: { description: "Bill created" }
  * /api/bills/last-meter/{contract_id}:
@@ -45,6 +53,7 @@ const { verifyToken, authorizeRoles } = require('../middleware/authMiddleware');
  *       200: { description: "Last meter readings" }
  */
 router.get('/last-meter/:contract_id', verifyToken, authorizeRoles('admin'), billController.getLastMeter);
+router.get('/:bill_id', verifyToken, authorizeRoles('admin', 'tenant'), billController.getBillById);
 router.get('/', verifyToken, authorizeRoles('admin'), billController.getBills);
 router.post('/', verifyToken, authorizeRoles('admin'), billController.createBill);
 

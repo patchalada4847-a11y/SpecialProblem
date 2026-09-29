@@ -1,12 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Building, User, Edit2, X, FileText, CheckCircle, Clock, UploadCloud, Image as ImageIcon } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import api from '../api/axios';
 import useToast from '../components/useToast';
+import Pagination from '../components/Pagination';
 
 export default function TenantDashboard() {
   const notify = useToast();
   const [profile, setProfile] = useState(null);
   const [bills, setBills] = useState([]);
+  const [billPage, setBillPage] = useState(1);
+  const [billPageSize, setBillPageSize] = useState(10);
+  const [billTotal, setBillTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showEditModal, setShowEditModal] = useState(false);
   const [editForm, setEditForm] = useState({ first_name: '', last_name: '', phone: '' });
@@ -15,16 +20,17 @@ export default function TenantDashboard() {
   const [uploadingBillId, setUploadingBillId] = useState(null);
   const [selectedSlipModal, setSelectedSlipModal] = useState(null);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     try {
       const [profileRes, billsRes] = await Promise.all([
         api.get('/tenant/me'),
-        api.get('/tenant/my-bills')
+        api.get('/tenant/my-bills', { params: { page: billPage, page_size: billPageSize } })
       ]);
 
       const profileData = profileRes.data || {};
       setProfile(profileData);
-      setBills(Array.isArray(billsRes.data) ? billsRes.data : []);
+      setBills(billsRes.data.items);
+      setBillTotal(billsRes.data.pagination.total);
 
       setEditForm({
         first_name: profileData.first_name || '',
@@ -36,11 +42,11 @@ export default function TenantDashboard() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [billPage, billPageSize]);
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    Promise.resolve().then(fetchData);
+  }, [fetchData]);
 
   const handleUpdateProfile = async (e) => {
     e.preventDefault();
@@ -135,84 +141,111 @@ export default function TenantDashboard() {
         <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
           <FileText className="text-indigo-600" size={20} /> บิลและประวัติการชำระเงิน
         </h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm text-gray-600">
-            <thead className="bg-gray-50 text-gray-700 uppercase border-b">
-              <tr>
-                <th className="p-3">รอบเดือน/ปี</th>
-                <th className="p-3">ค่าเช่า</th>
-                <th className="p-3">ค่าน้ำ</th>
-                <th className="p-3">ค่าไฟ</th>
-                <th className="p-3">ยอดรวม</th>
-                <th className="p-3">สถานะ</th>
-                <th className="p-3">การแนบสลิป</th>
-              </tr>
-            </thead>
-            <tbody>
-              {bills.length > 0 ? (
-                bills.map((b) => (
-                  <tr key={b.bill_id} className="border-b hover:bg-gray-50">
-                    <td className="p-3 font-semibold text-gray-800">{b.month}/{b.year}</td>
-                    <td className="p-3">฿{Number(b.rent_amount || 0).toLocaleString()}</td>
-                    <td className="p-3">
-                      ฿{Number(b.water_amount || 0).toLocaleString()} ({b.water_unit} หน่วย)
-                      <span className="block text-xs text-gray-400">{b.water_old_meter ?? 0} → {b.water_new_meter ?? '-'}</span>
-                    </td>
-                    <td className="p-3">
-                      ฿{Number(b.electric_amount || 0).toLocaleString()} ({b.electric_unit} หน่วย)
-                      <span className="block text-xs text-gray-400">{b.electric_old_meter ?? 0} → {b.electric_new_meter ?? '-'}</span>
-                    </td>
-                    <td className="p-3 font-semibold text-gray-800">฿{Number(b.total_amount || 0).toLocaleString()}</td>
-                    <td className="p-3">
-                      {b.payment_status === 'paid' ? (
-                        <span className="flex items-center gap-1 text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full text-xs w-fit">
-                          <CheckCircle size={14} /> ชำระแล้ว
-                        </span>
-                      ) : (
-                        <span className="flex items-center gap-1 text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full text-xs w-fit">
-                          <Clock size={14} /> รอชำระ
-                        </span>
-                      )}
-                    </td>
-                    <td className="p-3">
-                      {b.payment_status === 'paid' ? (
-                        <span className="text-gray-400 text-xs">เสร็จสิ้น</span>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 rounded-lg text-xs font-medium transition">
-                            <UploadCloud size={14} />
-                            <span>{uploadingBillId === b.bill_id ? 'กำลังส่ง...' : b.slip_image ? 'เปลี่ยนสลิป' : 'แนบสลิป'}</span>
-                            <input 
-                              type="file" 
-                              accept="image/*" 
-                              className="hidden" 
-                              disabled={uploadingBillId === b.bill_id}
-                              onChange={(e) => handleFileChange(e, b.bill_id)} 
-                            />
-                          </label>
+        {bills.length > 0 ? (
+          <div className="grid gap-4 xl:grid-cols-2">
+            {bills.map((b) => (
+              <article key={b.bill_id} className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+                <div className={`flex flex-wrap items-start justify-between gap-3 border-b px-5 py-4 ${
+                  b.payment_status === 'paid' ? 'bg-emerald-50/70' : 'bg-amber-50/70'
+                }`}>
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-wide text-gray-500">บิล #{String(b.bill_id).padStart(6, '0')}</p>
+                    <h3 className="mt-1 text-lg font-bold text-gray-900">รอบบิล {String(b.month).padStart(2, '0')}/{b.year}</h3>
+                    <p className="mt-1 text-xs text-gray-600">
+                      ครบกำหนด {b.due_date ? new Date(`${String(b.due_date).slice(0, 10)}T00:00:00`).toLocaleDateString('th-TH') : '-'}
+                    </p>
+                  </div>
+                  {b.payment_status === 'paid' ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1.5 text-xs font-semibold text-emerald-700">
+                      <CheckCircle size={14} /> ชำระแล้ว
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-800">
+                      <Clock size={14} /> รอชำระ
+                    </span>
+                  )}
+                </div>
 
-                          {b.slip_image && (
-                            <button
-                              onClick={() => setSelectedSlipModal(b.slip_image)}
-                              className="p-1.5 text-gray-500 hover:text-indigo-600 rounded-md transition"
-                              title="ดูสลิปที่แนบไว้"
-                            >
-                              <ImageIcon size={16} />
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan="7" className="text-center py-4 text-gray-400">ยังไม่มีประวัติการแจ้งชำระเงิน</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+                <div className="space-y-3 p-5">
+                  <div className="divide-y divide-gray-100 rounded-lg border border-gray-100 px-3">
+                    <div className="flex justify-between gap-3 py-2.5 text-sm">
+                      <span className="text-gray-600">ค่าเช่าห้องพัก</span>
+                      <span className="font-medium text-gray-800">฿{Number(b.rent_amount || 0).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between gap-3 py-2.5 text-sm">
+                      <span className="text-gray-600">
+                        ค่าน้ำ <span className="text-xs text-gray-400">({b.water_unit} หน่วย · มิเตอร์ {b.water_old_meter ?? 0} → {b.water_new_meter ?? '-'})</span>
+                      </span>
+                      <span className="shrink-0 font-medium text-gray-800">฿{Number(b.water_amount || 0).toLocaleString()}</span>
+                    </div>
+                    <div className="flex justify-between gap-3 py-2.5 text-sm">
+                      <span className="text-gray-600">
+                        ค่าไฟ <span className="text-xs text-gray-400">({b.electric_unit} หน่วย · มิเตอร์ {b.electric_old_meter ?? 0} → {b.electric_new_meter ?? '-'})</span>
+                      </span>
+                      <span className="shrink-0 font-medium text-gray-800">฿{Number(b.electric_amount || 0).toLocaleString()}</span>
+                    </div>
+                    {(Array.isArray(b.extra_charges) ? b.extra_charges : []).map((charge, index) => (
+                      <div key={`${b.bill_id}-extra-${index}`} className="flex justify-between gap-3 py-2.5 text-sm">
+                        <span className="text-gray-600">{charge.description}</span>
+                        <span className="shrink-0 font-medium text-gray-800">฿{Number(charge.amount || 0).toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between gap-3 border-t border-dashed border-gray-200 pt-3">
+                    <span className="text-sm font-semibold text-gray-600">ยอดชำระทั้งหมด</span>
+                    <span className="text-xl font-bold text-teal-700">฿{Number(b.total_amount || 0).toLocaleString()}</span>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <Link
+                      to={`/bills/${b.bill_id}`}
+                      className="inline-flex items-center gap-2 rounded-lg bg-teal-700 px-3.5 py-2 text-sm font-semibold text-white hover:bg-teal-800"
+                    >
+                      <FileText size={16} /> {b.payment_status === 'paid' ? 'ดูใบเสร็จ / พิมพ์' : 'ดูใบแจ้งหนี้ / พิมพ์'}
+                    </Link>
+                    {b.payment_status !== 'paid' && (
+                      <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50 px-3.5 py-2 text-sm font-medium text-teal-800 hover:bg-teal-100">
+                        <UploadCloud size={15} />
+                        <span>{uploadingBillId === b.bill_id ? 'กำลังส่ง...' : b.slip_image ? 'เปลี่ยนสลิป' : 'แนบสลิป'}</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          disabled={uploadingBillId === b.bill_id}
+                          onChange={(e) => handleFileChange(e, b.bill_id)}
+                        />
+                      </label>
+                    )}
+                    {b.slip_image && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedSlipModal(b.slip_image)}
+                        className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-100"
+                      >
+                        <ImageIcon size={16} /> ดูสลิป
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-gray-300 bg-gray-50 py-10 text-center">
+            <FileText className="mx-auto text-gray-400" size={30} />
+            <p className="mt-2 text-sm text-gray-500">ยังไม่มีประวัติบิลหรือใบแจ้งชำระเงิน</p>
+          </div>
+        )}
+        {billTotal > 0 && (
+          <Pagination
+            page={billPage}
+            pageSize={billPageSize}
+            total={billTotal}
+            onPageChange={setBillPage}
+            onPageSizeChange={(size) => { setBillPageSize(size); setBillPage(1); }}
+          />
+        )}
       </div>
 
       {/* Modal ดูภาพสลิป */}

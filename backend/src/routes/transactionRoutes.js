@@ -24,6 +24,10 @@ const { verifyToken, authorizeRoles } = require('../middleware/authMiddleware');
  *             required: [bill_id]
  *             properties:
  *               bill_id: { type: integer, example: 1 }
+ *               payment_date: { type: string, format: date, example: "2026-09-29" }
+ *               payment_method: { type: string, enum: [cash, bank_transfer, other], example: "bank_transfer" }
+ *               payment_reference: { type: string, maxLength: 200, example: "TRANSFER-12345" }
+ *               notes: { type: string, maxLength: 1000, example: "รับชำระครบถ้วน" }
  *     responses:
  *       200: { description: "Payment success" }
  * /api/transactions/expenses:

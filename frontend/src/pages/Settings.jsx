@@ -1,14 +1,31 @@
-import { useEffect, useState } from 'react';
-import { Plus, Save, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { Plus, Save, Trash2, ShieldCheck, UserPlus, Users } from 'lucide-react';
 import api from '../api/axios';
 import useToast from '../components/useToast';
 
 export default function Settings() {
   const notify = useToast();
+  const [admins, setAdmins] = useState([]);
+  const [adminAccess, setAdminAccess] = useState('loading');
+  const [adminForm, setAdminForm] = useState({
+    username: '',
+    password: '',
+    first_name: '',
+    last_name: '',
+    phone: ''
+  });
+  const [savingAdmin, setSavingAdmin] = useState(false);
   const [rates, setRates] = useState({ water_rate: '', electric_rate: '' });
+  const [dormitory, setDormitory] = useState({
+    dormitory_name: 'ระบบจัดการหอพัก',
+    dormitory_address: '',
+    contact_phone: '',
+    payment_instructions: ''
+  });
   const [roomTypes, setRoomTypes] = useState([]);
   const [newType, setNewType] = useState({ room_type: '', base_price: '' });
   const [loading, setLoading] = useState(true);
+  const isPrimaryAdmin = admins.some((admin) => admin.is_primary_admin && admin.is_current_user);
 
   useEffect(() => {
     let cancelled = false;
@@ -19,6 +36,12 @@ export default function Settings() {
         setRates({
           water_rate: res.data.water_rate,
           electric_rate: res.data.electric_rate
+        });
+        setDormitory({
+          dormitory_name: res.data.dormitory_name || 'ระบบจัดการหอพัก',
+          dormitory_address: res.data.dormitory_address || '',
+          contact_phone: res.data.contact_phone || '',
+          payment_instructions: res.data.payment_instructions || ''
         });
         setRoomTypes(res.data.room_types);
       } catch (err) {
@@ -33,6 +56,47 @@ export default function Settings() {
     };
   }, [notify]);
 
+  const loadAdmins = useCallback(async () => {
+    try {
+      const res = await api.get('/admins');
+      setAdmins(res.data);
+      setAdminAccess('allowed');
+    } catch (err) {
+      setAdminAccess('error');
+      notify(err.response?.data?.error || 'โหลดบัญชีแอดมินไม่สำเร็จ', 'error');
+    }
+  }, [notify]);
+
+  useEffect(() => {
+    Promise.resolve().then(loadAdmins);
+  }, [loadAdmins]);
+
+  const handleCreateAdmin = async (e) => {
+    e.preventDefault();
+    setSavingAdmin(true);
+    try {
+      await api.post('/admins', adminForm);
+      setAdminForm({ username: '', password: '', first_name: '', last_name: '', phone: '' });
+      notify('เพิ่มบัญชีแอดมินแล้ว', 'success');
+      await loadAdmins();
+    } catch (err) {
+      notify(err.response?.data?.error || 'เพิ่มบัญชีแอดมินไม่สำเร็จ', 'error');
+    } finally {
+      setSavingAdmin(false);
+    }
+  };
+
+  const handleDeleteAdmin = async (admin) => {
+    if (!confirm(`ยืนยันลบบัญชีแอดมิน "${admin.username}"?`)) return;
+    try {
+      await api.delete(`/admins/${admin.user_id}`);
+      setAdmins((current) => current.filter((item) => item.user_id !== admin.user_id));
+      notify('ลบบัญชีแอดมินแล้ว', 'success');
+    } catch (err) {
+      notify(err.response?.data?.error || 'ลบบัญชีแอดมินไม่สำเร็จ', 'error');
+    }
+  };
+
   const handleSaveRates = async (e) => {
     e.preventDefault();
     try {
@@ -44,6 +108,17 @@ export default function Settings() {
       notify('บันทึกอัตราค่าน้ำและค่าไฟแล้ว', 'success');
     } catch (err) {
       notify(err.response?.data?.error || 'บันทึกอัตราค่าน้ำและค่าไฟไม่สำเร็จ', 'error');
+    }
+  };
+
+  const handleSaveDormitory = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await api.put('/settings/dormitory', dormitory);
+      setDormitory(res.data);
+      notify('บันทึกข้อมูลหอพักแล้ว', 'success');
+    } catch (err) {
+      notify(err.response?.data?.error || 'บันทึกข้อมูลหอพักไม่สำเร็จ', 'error');
     }
   };
 
@@ -92,14 +167,66 @@ export default function Settings() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-gray-800">ตั้งค่าราคา</h1>
-        <p className="text-sm text-gray-500">กำหนดอัตราค่าน้ำ ค่าไฟ และราคาเริ่มต้นตามประเภทห้อง</p>
+        <h1 className="text-2xl font-bold text-gray-800">ตั้งค่าหอพัก</h1>
+        <p className="text-sm text-gray-500">จัดการข้อมูลหอพัก อัตราค่าน้ำ ค่าไฟ และราคาเริ่มต้นตามประเภทห้อง</p>
       </div>
 
       {loading ? (
         <p className="text-center py-6 text-gray-500">กำลังโหลดการตั้งค่า...</p>
       ) : (
         <>
+          <form onSubmit={handleSaveDormitory} className="space-y-4 rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
+            <div>
+              <h2 className="font-semibold text-gray-800">ข้อมูลหอพักสำหรับเอกสาร</h2>
+              <p className="mt-1 text-sm text-gray-500">ข้อมูลนี้จะแสดงบนใบแจ้งหนี้และใบเสร็จ</p>
+            </div>
+            <label className="block text-sm text-gray-700">
+              ชื่อหอพัก
+              <input
+                required
+                maxLength="150"
+                value={dormitory.dormitory_name}
+                onChange={(e) => setDormitory({ ...dormitory, dormitory_name: e.target.value })}
+                className="mt-1 w-full rounded-lg border p-2.5"
+              />
+            </label>
+            <label className="block text-sm text-gray-700">
+              ที่อยู่
+              <textarea
+                maxLength="500"
+                rows="2"
+                value={dormitory.dormitory_address}
+                onChange={(e) => setDormitory({ ...dormitory, dormitory_address: e.target.value })}
+                className="mt-1 w-full rounded-lg border p-2.5"
+              />
+            </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="text-sm text-gray-700">
+                เบอร์โทรศัพท์ติดต่อ
+                <input
+                  type="tel"
+                  maxLength="50"
+                  value={dormitory.contact_phone}
+                  onChange={(e) => setDormitory({ ...dormitory, contact_phone: e.target.value })}
+                  className="mt-1 w-full rounded-lg border p-2.5"
+                />
+              </label>
+              <label className="text-sm text-gray-700">
+                คำแนะนำการชำระเงิน
+                <textarea
+                  maxLength="1000"
+                  rows="2"
+                  value={dormitory.payment_instructions}
+                  onChange={(e) => setDormitory({ ...dormitory, payment_instructions: e.target.value })}
+                  className="mt-1 w-full rounded-lg border p-2.5"
+                />
+              </label>
+            </div>
+            <button className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700">
+              <Save size={16} /> บันทึกข้อมูลหอพัก
+            </button>
+          </form>
+
           <form onSubmit={handleSaveRates} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-4">
             <h2 className="font-semibold text-gray-800">อัตราค่าสาธารณูปโภค</h2>
             <div className="grid sm:grid-cols-2 gap-4">
@@ -204,6 +331,107 @@ export default function Settings() {
                 <Plus size={16} /> เพิ่มประเภท
               </button>
             </form>
+          </section>
+
+          <section className="space-y-5 rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
+            <div className="flex items-start gap-3">
+              <ShieldCheck className="mt-0.5 text-indigo-600" size={21} />
+              <div>
+                <h2 className="font-semibold text-gray-800">จัดการบัญชีแอดมิน</h2>
+                <p className="mt-1 text-sm text-gray-500">เฉพาะแอดมินหลักเท่านั้นที่เพิ่มหรือลบบัญชีแอดมินได้</p>
+              </div>
+            </div>
+
+            {adminAccess === 'loading' ? (
+              <p className="text-sm text-gray-500">กำลังตรวจสอบสิทธิ์...</p>
+            ) : adminAccess === 'error' ? (
+              <button type="button" onClick={loadAdmins} className="text-sm font-medium text-indigo-700 hover:underline">
+                ลองโหลดรายชื่อแอดมินอีกครั้ง
+              </button>
+            ) : (
+              <>
+                {isPrimaryAdmin ? (
+                  <form onSubmit={handleCreateAdmin} className="grid gap-3 border-b border-gray-100 pb-5 sm:grid-cols-2">
+                    <input
+                      required
+                      maxLength="100"
+                      value={adminForm.username}
+                      onChange={(e) => setAdminForm({ ...adminForm, username: e.target.value })}
+                      placeholder="ชื่อผู้ใช้"
+                      className="rounded-lg border p-2.5 text-sm"
+                    />
+                    <input
+                      required
+                      type="password"
+                      minLength="8"
+                      maxLength="128"
+                      value={adminForm.password}
+                      onChange={(e) => setAdminForm({ ...adminForm, password: e.target.value })}
+                      placeholder="รหัสผ่าน (อย่างน้อย 8 ตัว)"
+                      className="rounded-lg border p-2.5 text-sm"
+                    />
+                    <input
+                      required
+                      maxLength="100"
+                      value={adminForm.first_name}
+                      onChange={(e) => setAdminForm({ ...adminForm, first_name: e.target.value })}
+                      placeholder="ชื่อ"
+                      className="rounded-lg border p-2.5 text-sm"
+                    />
+                    <input
+                      required
+                      maxLength="100"
+                      value={adminForm.last_name}
+                      onChange={(e) => setAdminForm({ ...adminForm, last_name: e.target.value })}
+                      placeholder="นามสกุล"
+                      className="rounded-lg border p-2.5 text-sm"
+                    />
+                    <input
+                      type="tel"
+                      maxLength="50"
+                      value={adminForm.phone}
+                      onChange={(e) => setAdminForm({ ...adminForm, phone: e.target.value })}
+                      placeholder="เบอร์โทรศัพท์ (ไม่บังคับ)"
+                      className="rounded-lg border p-2.5 text-sm"
+                    />
+                    <button
+                      disabled={savingAdmin}
+                      className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm text-white hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      <UserPlus size={16} /> {savingAdmin ? 'กำลังเพิ่ม...' : 'เพิ่มแอดมิน'}
+                    </button>
+                  </form>
+                ) : (
+                  <p className="border-l-2 border-amber-400 bg-amber-50 p-3 text-sm text-amber-800">
+                    ดูรายชื่อแอดมินได้ แต่การเพิ่มหรือลบทำได้โดยแอดมินหลักเท่านั้น
+                  </p>
+                )}
+
+                <div className="space-y-2">
+                  {admins.map((admin) => (
+                    <div key={admin.user_id} className="flex flex-wrap items-center gap-3 border-b border-gray-100 py-3 last:border-0">
+                      <Users size={17} className="text-gray-400" />
+                      <div className="min-w-0 flex-1">
+                        <p className="font-medium text-gray-800">{admin.first_name} {admin.last_name} <span className="font-normal text-gray-500">({admin.username})</span></p>
+                        <p className="text-xs text-gray-500">{admin.phone || 'ไม่มีเบอร์โทร'}</p>
+                      </div>
+                      {admin.is_primary_admin ? (
+                        <span className="bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">แอดมินหลัก</span>
+                      ) : isPrimaryAdmin ? (
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteAdmin(admin)}
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50"
+                        >
+                          <Trash2 size={14} /> ลบ
+                        </button>
+                      ) : null}
+                    </div>
+                  ))}
+                  {admins.length === 0 && <p className="text-sm text-gray-500">ไม่พบบัญชีแอดมิน</p>}
+                </div>
+              </>
+            )}
           </section>
         </>
       )}

@@ -4,24 +4,25 @@ const jwt = require('jsonwebtoken');
 
 // 1. ฟังก์ชันสมัครสมาชิก (Register พร้อมแนบเอกสาร KYC)
 exports.register = async (req, res) => {
-  const { username, password, first_name, last_name, phone, role = 'tenant', kyc_document } = req.body;
+  const { username, password, first_name, last_name, phone, role, kyc_document } = req.body || {};
+
+  if (role !== undefined && role !== 'tenant') {
+    return res.status(403).json({ error: 'สมัครสมาชิกได้เฉพาะบัญชีผู้เช่าเท่านั้น' });
+  }
 
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
-    // ผู้เช่าตั้งค่าเริ่มต้นเป็น pending เพื่อรอแอดมินอนุมัติ ส่วน admin เป็น approved ทันที
-    const userStatus = role === 'admin' ? 'approved' : 'pending';
+    const userStatus = 'pending';
 
     const result = await db.query(
       `INSERT INTO m_users (username, password, first_name, last_name, phone, role, status, kyc_document)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING user_id, username, role, status`,
-      [username, hashedPassword, first_name, last_name, phone, role, userStatus, kyc_document || null]
+      [username, hashedPassword, first_name, last_name, phone, 'tenant', userStatus, kyc_document || null]
     );
 
     res.status(201).json({
-      message: role === 'tenant' 
-        ? 'ลงทะเบียนสำเร็จ กรุณารอผู้ดูแลระบบตรวจสอบและอนุมัติเอกสาร' 
-        : 'ลงทะเบียนสำเร็จ สามารถเข้าสู่ระบบได้ทันที',
+      message: 'ลงทะเบียนสำเร็จ กรุณารอผู้ดูแลระบบตรวจสอบและอนุมัติเอกสาร',
       user: result.rows[0]
     });
   } catch (err) {

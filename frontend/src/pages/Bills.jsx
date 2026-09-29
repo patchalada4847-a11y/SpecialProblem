@@ -1,7 +1,14 @@
-import { useState, useEffect } from 'react';
-import { FileText, CheckCircle, Clock, X, Image as ImageIcon, Check, Calculator } from 'lucide-react';
+import { useCallback, useState, useEffect } from 'react';
+import { FileText, CheckCircle, Clock, X, Image as ImageIcon, Check, Calculator, Search, Plus, Trash2 } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import api from '../api/axios';
 import useToast from '../components/useToast';
+import Pagination from '../components/Pagination';
+
+const localDate = () => {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
 
 export default function Bills() {
   const notify = useToast();
@@ -11,6 +18,21 @@ export default function Bills() {
   const [showModal, setShowModal] = useState(false);
   const [viewSlip, setViewSlip] = useState(null);
   const [rates, setRates] = useState({ water_rate: 18, electric_rate: 8 });
+  const [billingMonth, setBillingMonth] = useState(
+    `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
+  );
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [totalBills, setTotalBills] = useState(0);
+  const [paymentBill, setPaymentBill] = useState(null);
+  const [paymentForm, setPaymentForm] = useState({
+    payment_date: localDate(),
+    payment_method: 'cash',
+    payment_reference: '',
+    notes: ''
+  });
 
   // ฟอร์มออกบิล
   const [form, setForm] = useState({
@@ -25,15 +47,14 @@ export default function Bills() {
   });
 
   const [selectedContractPrice, setSelectedContractPrice] = useState(0);
+  const [extraCharges, setExtraCharges] = useState([]);
 
-  const fetchData = async () => {
+  const fetchReferenceData = useCallback(async () => {
     try {
-      const [resBills, resContracts, resSettings] = await Promise.all([
-        api.get('/bills'),
+      const [resContracts, resSettings] = await Promise.all([
         api.get('/contracts'),
         api.get('/settings')
       ]);
-      setBills(resBills.data);
       setContracts(resContracts.data.filter(c => c.status === 'active'));
       setRates({
         water_rate: Number(resSettings.data.water_rate),
@@ -41,14 +62,38 @@ export default function Bills() {
       });
     } catch (err) {
       console.error(err);
+    }
+  }, []);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const [year, month] = billingMonth.split('-').map(Number);
+      const resBills = await api.get('/bills', {
+          params: {
+            page,
+            page_size: pageSize,
+            month,
+            year,
+            status: statusFilter === 'all' ? '' : statusFilter,
+            search
+          }
+        });
+      setBills(resBills.data.items);
+      setTotalBills(resBills.data.pagination.total);
+    } catch (err) {
+      console.error(err);
     } finally {
       setLoading(false);
     }
-  };
+  }, [billingMonth, page, pageSize, search, statusFilter]);
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    Promise.resolve().then(fetchData);
+  }, [fetchData]);
+
+  useEffect(() => {
+    Promise.resolve().then(fetchReferenceData);
+  }, [fetchReferenceData]);
 
   // เมื่อเลือกสัญญา ให้ไปดึงมิเตอร์เก่า และค่าเช่าห้องมาตั้งต้น
   const handleContractChange = async (contractId) => {
@@ -85,7 +130,8 @@ export default function Bills() {
   const waterCost = waterUnits * rates.water_rate;
   const electricUnits = Math.max(0, Number(form.electric_new_meter || 0) - Number(form.electric_old_meter || 0));
   const electricCost = electricUnits * rates.electric_rate;
-  const estimatedTotal = selectedContractPrice + waterCost + electricCost;
+  const extraChargesTotal = extraCharges.reduce((sum, charge) => sum + Number(charge.amount || 0), 0);
+  const estimatedTotal = selectedContractPrice + waterCost + electricCost + extraChargesTotal;
 
   const handleCreateBill = async (e) => {
     e.preventDefault();
@@ -107,7 +153,10 @@ export default function Bills() {
         water_new_meter: Number(form.water_new_meter),
         electric_old_meter: Number(form.electric_old_meter),
         electric_new_meter: Number(form.electric_new_meter),
-        due_date: form.due_date
+        due_date: form.due_date,
+        extra_charges: extraCharges
+          .filter((charge) => charge.description.trim() && charge.amount !== '')
+          .map((charge) => ({ ...charge, amount: Number(charge.amount) }))
       });
 
       notify('ออกบิลสำเร็จเรียบร้อย', 'success');
@@ -122,23 +171,49 @@ export default function Bills() {
         electric_new_meter: '',
         due_date: ''
       });
+      setExtraCharges([]);
       fetchData();
     } catch (err) {
       notify(err.response?.data?.error || err.response?.data?.message || 'ไม่สามารถออกบิลได้', 'error');
     }
   };
 
-  const handlePayBill = async (billId) => {
-    if (!confirm('ยืนยันว่าได้รับยอดเงินและต้องการอนุมัติการชำระเงิน?')) return;
+  const openPaymentForm = (bill) => {
+    setPaymentBill(bill);
+    setViewSlip(null);
+    setPaymentForm({
+      payment_date: localDate(),
+      payment_method: 'cash',
+      payment_reference: '',
+      notes: ''
+    });
+  };
+
+  const handlePayBill = async (e) => {
+    e.preventDefault();
+    if (!paymentBill) return;
     try {
-      await api.post('/transactions/pay-bill', { bill_id: billId });
+      await api.post('/transactions/pay-bill', {
+        bill_id: paymentBill.bill_id,
+        ...paymentForm,
+        payment_reference: paymentForm.payment_reference.trim() || null,
+        notes: paymentForm.notes.trim() || null
+      });
       notify('อนุมัติการชำระเงินสำเร็จ', 'success');
-      setViewSlip(null);
+      setPaymentBill(null);
       fetchData();
     } catch (err) {
       notify(err.response?.data?.error || 'ไม่สามารถทำรายการได้', 'error');
     }
   };
+
+  const visibleBills = bills;
+  const visibleTotal = visibleBills.reduce((sum, bill) => sum + Number(bill.total_amount || 0), 0);
+  const pendingBills = visibleBills.filter((bill) => bill.payment_status !== 'paid');
+  const paidBills = visibleBills.filter((bill) => bill.payment_status === 'paid');
+  const pendingTotal = pendingBills
+    .reduce((sum, bill) => sum + Number(bill.total_amount || 0), 0);
+  const paidTotal = paidBills.reduce((sum, bill) => sum + Number(bill.total_amount || 0), 0);
 
   return (
     <div className="space-y-6">
@@ -157,6 +232,57 @@ export default function Bills() {
 
       {/* ตารางแสดงบิล */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-4">
+        <div className="grid gap-3 md:grid-cols-[180px_1fr_180px]">
+          <label className="text-xs font-medium text-gray-600">
+            รอบบิล
+            <input
+              type="month"
+              value={billingMonth}
+              onChange={(e) => {
+                setBillingMonth(e.target.value);
+                setPage(1);
+              }}
+              className="mt-1 w-full rounded-lg border p-2.5 text-sm text-gray-800"
+            />
+          </label>
+          <label className="text-xs font-medium text-gray-600">
+            ค้นหาบิล / ห้อง / ผู้เช่า
+            <span className="relative mt-1 block">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setPage(1);
+                }}
+                placeholder="เลขบิล ห้อง หรือชื่อผู้เช่า"
+                className="w-full rounded-lg border py-2.5 pl-9 pr-3 text-sm"
+              />
+            </span>
+          </label>
+          <label className="text-xs font-medium text-gray-600">
+            สถานะชำระเงิน
+            <select
+              value={statusFilter}
+              onChange={(e) => {
+                setStatusFilter(e.target.value);
+                setPage(1);
+              }}
+              className="mt-1 w-full rounded-lg border bg-white p-2.5 text-sm text-gray-800"
+            >
+              <option value="all">ทั้งหมด</option>
+              <option value="pending">รอชำระ</option>
+              <option value="paid">ชำระแล้ว</option>
+            </select>
+          </label>
+        </div>
+        <div className="grid gap-2 rounded-lg bg-gray-50 p-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+          <p className="text-gray-600">บิลในหน้านี้ <strong className="text-gray-900">{visibleBills.length}</strong> จากทั้งหมด {totalBills}</p>
+          <p className="text-indigo-700">ยอดรวมในหน้านี้ <strong>฿{visibleTotal.toLocaleString()}</strong></p>
+          <p className="text-amber-700">รอชำระในหน้านี้ <strong>{pendingBills.length} บิล · ฿{pendingTotal.toLocaleString()}</strong></p>
+          <p className="text-emerald-700">ชำระแล้วในหน้านี้ <strong>{paidBills.length} บิล · ฿{paidTotal.toLocaleString()}</strong></p>
+        </div>
         {loading ? (
           <p className="text-center py-6 text-gray-500">กำลังโหลดข้อมูล...</p>
         ) : (
@@ -171,12 +297,13 @@ export default function Bills() {
                   <th className="p-3">มิเตอร์ไฟ (เก่า ➔ ใหม่)</th>
                   <th className="p-3">ยอดรวม</th>
                   <th className="p-3">สถานะ</th>
+                  <th className="p-3">เอกสาร</th>
                   <th className="p-3">สลิป</th>
                   <th className="p-3 text-center">จัดการ</th>
                 </tr>
               </thead>
               <tbody>
-                {bills.map((b) => (
+                {visibleBills.map((b) => (
                   <tr key={b.bill_id} className="border-b hover:bg-gray-50">
                     <td className="p-3 font-semibold text-gray-800">#{b.bill_id}</td>
                     <td className="p-3">
@@ -192,7 +319,14 @@ export default function Bills() {
                       {b.electric_old_meter ?? 0} ➔ {b.electric_new_meter ?? b.electric_unit}
                       <span className="text-indigo-600 block font-medium">({b.electric_unit} หน่วย = ฿{b.electric_amount})</span>
                     </td>
-                    <td className="p-3 font-semibold text-indigo-600">฿{Number(b.total_amount).toLocaleString()}</td>
+                    <td className="p-3 font-semibold text-indigo-600">
+                      ฿{Number(b.total_amount).toLocaleString()}
+                      {Array.isArray(b.extra_charges) && b.extra_charges.length > 0 && (
+                        <span className="mt-1 block text-xs font-normal text-gray-500">
+                          +{b.extra_charges.length} รายการเพิ่มเติม
+                        </span>
+                      )}
+                    </td>
                     <td className="p-3">
                       {b.payment_status === 'paid' ? (
                         <span className="flex items-center gap-1 text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full text-xs w-fit font-medium">
@@ -203,6 +337,14 @@ export default function Bills() {
                           <Clock size={14} /> รอชำระ
                         </span>
                       )}
+                    </td>
+                    <td className="p-3">
+                      <Link
+                        to={`/bills/${b.bill_id}`}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-800"
+                      >
+                        <FileText size={14} /> ดู / พิมพ์
+                      </Link>
                     </td>
                     <td className="p-3">
                       {b.slip_image ? (
@@ -219,7 +361,7 @@ export default function Bills() {
                     <td className="p-3 text-center">
                       {b.payment_status === 'pending' ? (
                         <button 
-                          onClick={() => handlePayBill(b.bill_id)} 
+                          onClick={() => openPaymentForm(b)}
                           className="inline-flex items-center gap-1 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-3 py-1 rounded-lg text-xs font-semibold transition cursor-pointer"
                         >
                           <Check size={14} /> ยืนยันการจ่าย
@@ -233,6 +375,18 @@ export default function Bills() {
               </tbody>
             </table>
           </div>
+        )}
+        {!loading && visibleBills.length === 0 && (
+          <p className="py-6 text-center text-sm text-gray-500">ไม่พบบิลที่ตรงกับเดือนและตัวกรองที่เลือก</p>
+        )}
+        {!loading && (
+          <Pagination
+            page={page}
+            pageSize={pageSize}
+            total={totalBills}
+            onPageChange={setPage}
+            onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
+          />
         )}
       </div>
 
@@ -331,9 +485,60 @@ export default function Bills() {
                 <input type="date" required value={form.due_date} onChange={(e) => setForm({...form, due_date: e.target.value})} className="w-full border p-2 rounded-lg text-sm" />
               </div>
 
+              <div className="space-y-3 rounded-xl border border-gray-200 p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <h4 className="text-sm font-semibold text-gray-800">ค่าใช้จ่ายเพิ่มเติม</h4>
+                    <p className="text-xs text-gray-500">เช่น อินเทอร์เน็ต ที่จอดรถ หรือค่าส่วนกลาง</p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={extraCharges.length >= 20}
+                    onClick={() => setExtraCharges((current) => [...current, { description: '', amount: '' }])}
+                    className="inline-flex items-center gap-1 rounded-lg bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-700 hover:bg-teal-100 disabled:opacity-50"
+                  >
+                    <Plus size={14} /> เพิ่มรายการ
+                  </button>
+                </div>
+                {extraCharges.map((charge, index) => (
+                  <div key={index} className="grid grid-cols-[1fr_120px_auto] gap-2">
+                    <input
+                      required
+                      maxLength="100"
+                      value={charge.description}
+                      onChange={(e) => setExtraCharges((current) => current.map((item, itemIndex) => (
+                        itemIndex === index ? { ...item, description: e.target.value } : item
+                      )))}
+                      placeholder="ชื่อรายการ"
+                      className="min-w-0 rounded-lg border p-2 text-sm"
+                    />
+                    <input
+                      required
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={charge.amount}
+                      onChange={(e) => setExtraCharges((current) => current.map((item, itemIndex) => (
+                        itemIndex === index ? { ...item, amount: e.target.value } : item
+                      )))}
+                      placeholder="จำนวนเงิน"
+                      className="w-full rounded-lg border p-2 text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setExtraCharges((current) => current.filter((_, itemIndex) => itemIndex !== index))}
+                      className="rounded-lg p-2 text-rose-600 hover:bg-rose-50"
+                      aria-label="ลบรายการค่าใช้จ่าย"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
               {/* ยอดประเมินรวม */}
               <div className="p-3 bg-gray-50 rounded-xl flex justify-between items-center text-sm font-semibold">
-                <span className="text-gray-700">ยอดรวมทั้งสิ้น (ค่าห้อง+น้ำ+ไฟ):</span>
+                <span className="text-gray-700">ยอดรวมทั้งสิ้น:</span>
                 <span className="text-indigo-600 text-base">฿{estimatedTotal.toLocaleString()}</span>
               </div>
 
@@ -359,7 +564,7 @@ export default function Bills() {
             <div className="space-y-2 pt-1">
               {viewSlip.payment_status === 'pending' && (
                 <button
-                  onClick={() => handlePayBill(viewSlip.bill_id)}
+                  onClick={() => openPaymentForm(viewSlip)}
                   className="w-full bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-lg text-sm font-medium transition flex items-center justify-center gap-1.5 shadow-sm"
                 >
                   <Check size={16} /> ยืนยันยอดเงินและอนุมัติบิลนี้
@@ -368,6 +573,67 @@ export default function Bills() {
               <button onClick={() => setViewSlip(null)} className="w-full bg-gray-100 text-gray-700 py-2 rounded-lg text-sm font-medium">ปิด</button>
             </div>
           </div>
+        </div>
+      )}
+
+      {paymentBill && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-4">
+          <form onSubmit={handlePayBill} className="w-full max-w-md space-y-4 rounded-2xl bg-white p-6 shadow-xl">
+            <div className="flex items-start justify-between border-b pb-3">
+              <div>
+                <h3 className="font-bold text-gray-800">ยืนยันรับชำระบิล #{paymentBill.bill_id}</h3>
+                <p className="mt-1 text-sm text-gray-500">ห้อง {paymentBill.room_number} · ฿{Number(paymentBill.total_amount).toLocaleString()}</p>
+              </div>
+              <button type="button" onClick={() => setPaymentBill(null)} className="text-gray-400 hover:text-gray-600"><X size={20} /></button>
+            </div>
+            <label className="block text-sm text-gray-700">
+              วันที่รับชำระ
+              <input
+                type="date"
+                required
+                value={paymentForm.payment_date}
+                onChange={(e) => setPaymentForm({ ...paymentForm, payment_date: e.target.value })}
+                className="mt-1 w-full rounded-lg border p-2.5"
+              />
+            </label>
+            <label className="block text-sm text-gray-700">
+              วิธีชำระเงิน
+              <select
+                required
+                value={paymentForm.payment_method}
+                onChange={(e) => setPaymentForm({ ...paymentForm, payment_method: e.target.value })}
+                className="mt-1 w-full rounded-lg border bg-white p-2.5"
+              >
+                <option value="cash">เงินสด</option>
+                <option value="bank_transfer">โอนเงินผ่านธนาคาร</option>
+                <option value="other">อื่น ๆ</option>
+              </select>
+            </label>
+            <label className="block text-sm text-gray-700">
+              เลขอ้างอิง / เลขที่รายการ (ไม่บังคับ)
+              <input
+                type="text"
+                maxLength="200"
+                value={paymentForm.payment_reference}
+                onChange={(e) => setPaymentForm({ ...paymentForm, payment_reference: e.target.value })}
+                className="mt-1 w-full rounded-lg border p-2.5"
+              />
+            </label>
+            <label className="block text-sm text-gray-700">
+              หมายเหตุ (ไม่บังคับ)
+              <textarea
+                maxLength="1000"
+                rows="3"
+                value={paymentForm.notes}
+                onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
+                className="mt-1 w-full rounded-lg border p-2.5"
+              />
+            </label>
+            <div className="flex gap-3 pt-1">
+              <button type="button" onClick={() => setPaymentBill(null)} className="flex-1 rounded-lg bg-gray-100 py-2.5 text-sm font-medium text-gray-700">ยกเลิก</button>
+              <button type="submit" className="flex-1 rounded-lg bg-emerald-600 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700">ยืนยันรับชำระ</button>
+            </div>
+          </form>
         </div>
       )}
     </div>

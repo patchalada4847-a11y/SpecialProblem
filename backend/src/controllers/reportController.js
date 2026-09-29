@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { parsePagination, respondWithPagination } = require('../utils/pagination');
 
 function isValidDate(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -97,6 +98,11 @@ exports.getRoomReport = async (req, res) => {
 
 exports.getTenantReport = async (req, res) => {
   try {
+    const pagination = parsePagination(req.query);
+    const search = String(req.query.search || '').trim();
+    const where = `WHERE u.role = 'tenant'
+      AND ($1 = '' OR CONCAT_WS(' ', u.user_id, u.username, u.first_name, u.last_name, u.phone,
+        u.status, r.room_number) ILIKE '%' || $1 || '%')`;
     const result = await db.query(`
       SELECT u.user_id, u.username, u.first_name, u.last_name, u.phone, u.status AS account_status,
              c.contract_id, c.start_date, c.end_date, c.status AS contract_status,
@@ -104,10 +110,21 @@ exports.getTenantReport = async (req, res) => {
       FROM m_users u
       LEFT JOIN m_contracts c ON u.user_id = c.tenant_id AND c.status = 'active'
       LEFT JOIN m_rooms r ON c.room_id = r.room_id
-      WHERE u.role = 'tenant'
+      ${where}
       ORDER BY u.first_name, u.last_name
-    `);
-    res.json(result.rows);
+      ${pagination ? 'LIMIT $2 OFFSET $3' : ''}
+    `,
+    pagination ? [search, pagination.pageSize, pagination.offset] : [search]);
+    if (!pagination) return res.json(result.rows);
+    const count = await db.query(
+      `SELECT COUNT(*) AS total
+       FROM m_users u
+       LEFT JOIN m_contracts c ON u.user_id = c.tenant_id AND c.status = 'active'
+       LEFT JOIN m_rooms r ON c.room_id = r.room_id
+       ${where}`,
+      [search]
+    );
+    respondWithPagination(req, res, result.rows, count.rows[0].total, pagination);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

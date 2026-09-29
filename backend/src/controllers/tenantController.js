@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { parsePagination, respondWithPagination } = require('../utils/pagination');
 
 // 1. ดึงข้อมูลส่วนตัว สัญญาเช่า และห้องพัก
 exports.getMyProfileAndContract = async (req, res) => {
@@ -84,6 +85,7 @@ exports.updateTenantProfile = async (req, res) => {
 exports.getMyBills = async (req, res) => {
   try {
     const userId = req.user?.user_id || req.user?.id;
+    const pagination = parsePagination(req.query);
 
     // แก้ไข: ใช้ b.payment_status ตรงๆ โดยไม่เรียก b.status
     const query = `
@@ -102,6 +104,7 @@ exports.getMyBills = async (req, res) => {
         b.electric_amount,
         b.rent_amount,
         b.total_amount,
+        b.extra_charges,
         b.payment_status,
         b.due_date,
         b.slip_image,
@@ -110,12 +113,24 @@ exports.getMyBills = async (req, res) => {
       INNER JOIN m_contracts c ON b.contract_id = c.contract_id
       WHERE c.tenant_id = $1
       ORDER BY b.year DESC, b.month DESC
+      ${pagination ? 'LIMIT $2 OFFSET $3' : ''}
     `;
 
-    const result = await db.query(query, [userId]);
+    const result = await db.query(
+      query,
+      pagination ? [userId, pagination.pageSize, pagination.offset] : [userId]
+    );
     const bills = result.rows || [];
 
-    res.json(bills);
+    if (!pagination) return res.json(bills);
+    const count = await db.query(
+      `SELECT COUNT(*) AS total
+       FROM t_bills b
+       INNER JOIN m_contracts c ON b.contract_id = c.contract_id
+       WHERE c.tenant_id = $1`,
+      [userId]
+    );
+    respondWithPagination(req, res, bills, count.rows[0].total, pagination);
   } catch (error) {
     console.error('Error in getMyBills:', error);
     res.status(500).json({ error: error.message });
@@ -144,17 +159,32 @@ exports.updateMyProfile = async (req, res) => {
 // ดึงรายชื่อผู้เช่าที่สมัครสมาชิกแล้ว (เฉพาะคนที่ยังไม่ได้ผูกห้อง หรือยังไม่มีสัญญา Active)
 exports.getAvailableTenants = async (req, res) => {
   try {
-    const query = `
-      SELECT u.user_id, u.username, u.first_name, u.last_name, u.phone
-      FROM m_users u
-      WHERE u.role = 'tenant'
+    const pagination = parsePagination(req.query);
+    const search = String(req.query.search || '').trim();
+    const status = String(req.query.status || '');
+    const where = `WHERE u.role = 'tenant'
         AND u.user_id NOT IN (
           SELECT tenant_id FROM m_contracts WHERE status = 'active'
         )
+        AND ($1 = '' OR CONCAT_WS(' ', u.user_id, u.username, u.first_name, u.last_name, u.phone) ILIKE '%' || $1 || '%')
+        AND ($2 = '' OR u.user_id = $2::bigint)`;
+    const query = `
+      SELECT u.user_id, u.username, u.first_name, u.last_name, u.phone
+      FROM m_users u
+      ${where}
       ORDER BY u.first_name ASC
+      ${pagination ? 'LIMIT $3 OFFSET $4' : ''}
     `;
-    const result = await db.query(query);
-    res.json(result.rows || []);
+    const result = await db.query(
+      query,
+      pagination ? [search, status, pagination.pageSize, pagination.offset] : [search, status]
+    );
+    if (!pagination) return res.json(result.rows || []);
+    const count = await db.query(
+      `SELECT COUNT(*) AS total FROM m_users u ${where}`,
+      [search, status]
+    );
+    respondWithPagination(req, res, result.rows, count.rows[0].total, pagination);
   } catch (error) {
     console.error('Error in getAvailableTenants:', error);
     res.status(500).json({ error: error.message });
@@ -201,13 +231,19 @@ exports.uploadSlip = async (req, res) => {
 // ดึงรายชื่อผู้ใช้ที่รอการยืนยันตัวตน (KYC)
 exports.getPendingKYC = async (req, res) => {
   try {
+    const pagination = parsePagination(req.query);
+    const count = pagination
+      ? await db.query(`SELECT COUNT(*) AS total FROM m_users WHERE role = 'tenant' AND status = 'pending'`)
+      : null;
     const result = await db.query(
       `SELECT user_id, username, first_name, last_name, phone, status, kyc_document, created_at 
        FROM m_users 
        WHERE role = 'tenant' AND status = 'pending'
-       ORDER BY created_at DESC`
+       ORDER BY created_at DESC
+       ${pagination ? 'LIMIT $1 OFFSET $2' : ''}`,
+      pagination ? [pagination.pageSize, pagination.offset] : []
     );
-    res.json(result.rows);
+    respondWithPagination(req, res, result.rows, count?.rows[0].total, pagination);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
