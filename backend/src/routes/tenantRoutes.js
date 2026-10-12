@@ -46,15 +46,27 @@ const { verifyToken, authorizeRoles } = require('../middleware/authMiddleware');
  *     responses:
  *       200:
  *         description: Profile updated successfully
+ *
+ * /api/tenant/upload-slip:
+ *   post:
+ *     summary: ส่งสลิปชำระเงินและรับผลตรวจ/ผลจำลอง
+ *     tags: [Tenant Portal]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Slip saved; check verification_status and simulated
  */
 router.get('/me', verifyToken, tenantController.getMyProfileAndContract);
 router.get('/my-bills', verifyToken, tenantController.getMyBills);
 router.put('/update-profile', verifyToken, tenantController.updateMyProfile);
 router.put('/admin/tenants/:id', verifyToken, authorizeRoles('admin'), tenantController.updateTenantProfile);
 router.get('/admin/tenants/:id/documents', verifyToken, authorizeRoles('admin'), tenantController.getTenantDocuments);
+router.get('/admin/tenants/:id/documents/:document_id', verifyToken, authorizeRoles('admin'), tenantController.getTenantDocument);
 router.get('/available-tenants', verifyToken, authorizeRoles('admin'), tenantController.getAvailableTenants);
-router.post('/upload-slip', verifyToken, tenantController.uploadSlip);
+router.post('/upload-slip', verifyToken, authorizeRoles('tenant'), tenantController.uploadSlip);
 router.get('/renewals', verifyToken, authorizeRoles('tenant'), renewalController.getMyRenewals);
+router.get('/renewals/:id/document/:kind', verifyToken, authorizeRoles('tenant'), renewalController.getRenewalDocument);
 router.post('/renewals', verifyToken, authorizeRoles('tenant'), renewalController.createMyRenewal);
 router.put('/renewals/:id/signed-document', verifyToken, authorizeRoles('tenant'), renewalController.uploadSignedRenewal);
 router.get('/support-tickets', verifyToken, authorizeRoles('tenant'), supportController.getMyTickets);
@@ -62,6 +74,7 @@ router.post('/support-tickets', verifyToken, authorizeRoles('tenant'), supportCo
 router.put('/support-tickets/:id/close', verifyToken, authorizeRoles('tenant'), supportController.closeMyTicket);
 
 router.get('/pending-kyc', verifyToken, authorizeRoles('admin'), tenantController.getPendingKYC);
+router.get('/pending-kyc/:id/document', verifyToken, authorizeRoles('admin'), tenantController.getPendingKYCDocument);
 router.post('/verify-kyc', verifyToken, authorizeRoles('admin'), tenantController.verifyKYC);
 
 module.exports = router;

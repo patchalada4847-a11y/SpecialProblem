@@ -74,11 +74,15 @@ export default function TenantDashboard() {
     reader.onloadend = async () => {
       try {
         setUploadingBillId(billId);
-        await api.post('/tenant/upload-slip', {
+        const response = await api.post('/tenant/upload-slip', {
           bill_id: billId,
           slip_image: reader.result
         });
-        notify('อัปโหลดสลิปสำเร็จ รอแอดมินตรวจสอบ', 'success');
+        const result = response.data || {};
+        notify(
+          `${result.simulated ? '[ผลจำลอง] ' : ''}${result.message || 'ส่งสลิปเรียบร้อยแล้ว'}${result.notification_warning ? ` (${result.notification_warning})` : ''}`,
+          result.verification_status === 'rejected' || result.verification_status === 'duplicate' ? 'error' : 'success'
+        );
         fetchData();
       } catch (err) {
         notify(err.response?.data?.error || 'อัปโหลดสลิปไม่สำเร็จ', 'error');
@@ -159,6 +163,14 @@ export default function TenantDashboard() {
                     <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1.5 text-xs font-semibold text-emerald-700">
                       <CheckCircle size={14} /> ชำระแล้ว
                     </span>
+                  ) : b.slip_verification_status === 'rejected' || b.slip_verification_status === 'duplicate' ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-3 py-1.5 text-xs font-semibold text-rose-700">
+                      {b.slip_verification_status === 'duplicate' ? 'สลิปซ้ำ' : 'ตรวจสลิปไม่ผ่าน'}
+                    </span>
+                  ) : b.slip_verification_status === 'manual_review' ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-3 py-1.5 text-xs font-semibold text-sky-700">
+                      <Clock size={14} /> รอตรวจสลิป
+                    </span>
                   ) : (
                     <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-800">
                       <Clock size={14} /> รอชำระ
@@ -197,6 +209,14 @@ export default function TenantDashboard() {
                     <span className="text-xl font-bold text-teal-700">฿{Number(b.total_amount || 0).toLocaleString()}</span>
                   </div>
 
+                  {b.payment_status !== 'paid' && b.promptpay_number && (
+                    <div className="rounded-lg border border-teal-100 bg-teal-50 px-4 py-3">
+                      <p className="text-xs font-semibold text-teal-800">ช่องทางชำระเงิน</p>
+                      <p className="mt-1 text-sm font-medium text-gray-800">พร้อมเพย์: {b.promptpay_number}</p>
+                      <p className="mt-1 text-xs text-gray-600">โอนตามยอดบิล แล้วแนบสลิปเพื่อแจ้งชำระ</p>
+                    </div>
+                  )}
+
                   <div className="flex flex-wrap items-center gap-2 pt-1">
                     <Link
                       to={`/bills/${b.bill_id}`}
@@ -207,20 +227,30 @@ export default function TenantDashboard() {
                     {b.payment_status !== 'paid' && (
                       <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-teal-200 bg-teal-50 px-3.5 py-2 text-sm font-medium text-teal-800 hover:bg-teal-100">
                         <UploadCloud size={15} />
-                        <span>{uploadingBillId === b.bill_id ? 'กำลังส่ง...' : b.slip_image ? 'เปลี่ยนสลิป' : 'แนบสลิป'}</span>
+                        <span>{uploadingBillId === b.bill_id ? 'กำลังส่ง...' : b.has_slip ? 'เปลี่ยนสลิป' : 'แนบสลิป'}</span>
                         <input
                           type="file"
-                          accept="image/*"
+                          accept="image/jpeg,image/png,image/webp"
                           className="hidden"
                           disabled={uploadingBillId === b.bill_id}
                           onChange={(e) => handleFileChange(e, b.bill_id)}
                         />
                       </label>
                     )}
-                    {b.slip_image && (
+                    {b.slip_verification_message && b.payment_status !== 'paid' && (
+                      <p className="w-full text-xs text-gray-500">{b.slip_verification_message}</p>
+                    )}
+                    {b.has_slip && (
                       <button
                         type="button"
-                        onClick={() => setSelectedSlipModal(b.slip_image)}
+                        onClick={async () => {
+                          try {
+                            const response = await api.get(`/bills/${b.bill_id}/slip`);
+                            setSelectedSlipModal(response.data.slip_image);
+                          } catch (err) {
+                            notify(err.response?.data?.error || 'โหลดสลิปไม่สำเร็จ', 'error');
+                          }
+                        }}
                         className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm text-gray-600 hover:bg-gray-100"
                       >
                         <ImageIcon size={16} /> ดูสลิป
@@ -299,9 +329,12 @@ export default function TenantDashboard() {
               <div>
                 <label className="block text-xs font-medium mb-1">เบอร์โทรศัพท์</label>
                 <input 
-                  type="text" 
+                  type="tel"
+                  inputMode="numeric"
+                  pattern="[0-9]{10}"
+                  maxLength="10"
                   value={editForm.phone} 
-                  onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })} 
+                  onChange={(e) => setEditForm({ ...editForm, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })}
                   className="w-full border p-2 rounded-lg text-sm" 
                 />
               </div>

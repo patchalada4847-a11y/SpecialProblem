@@ -1,5 +1,5 @@
-import { useCallback, useState, useEffect } from 'react';
-import { FileText, CheckCircle, Clock, X, Image as ImageIcon, Check, Calculator, Search, Plus, Trash2 } from 'lucide-react';
+import { useCallback, useState, useEffect, useRef } from 'react';
+import { FileText, CheckCircle, Clock, X, Image as ImageIcon, Check, Calculator, Search, Plus, Trash2, CalendarDays, ReceiptText } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import api from '../api/axios';
 import useToast from '../components/useToast';
@@ -29,6 +29,10 @@ export default function Bills() {
   const [pageSize, setPageSize] = useState(20);
   const [totalBills, setTotalBills] = useState(0);
   const [paymentBill, setPaymentBill] = useState(null);
+  const [dueDateBill, setDueDateBill] = useState(null);
+  const [dueDateValue, setDueDateValue] = useState('');
+  const roomBillingListRef = useRef(null);
+  const requestedContractHandled = useRef(false);
   const [paymentForm, setPaymentForm] = useState({
     payment_date: localDate(),
     payment_method: 'cash',
@@ -45,11 +49,42 @@ export default function Bills() {
     water_new_meter: '',
     electric_old_meter: 0,
     electric_new_meter: '',
-    due_date: ''
+    due_date: localDate(),
+    water_rate: '',
+    electric_rate: ''
   });
 
   const [selectedContractPrice, setSelectedContractPrice] = useState(0);
   const [extraCharges, setExtraCharges] = useState([]);
+
+  const handleContractChange = useCallback(async (contractId) => {
+    const found = contracts.find(c => c.contract_id === Number(contractId));
+    setSelectedContractPrice(found ? Number(found.base_price || 0) : 0);
+
+    if (!contractId) {
+      setForm(prev => ({
+        ...prev,
+        contract_id: '',
+        water_old_meter: 0,
+        electric_old_meter: 0
+      }));
+      return;
+    }
+
+    try {
+      const res = await api.get(`/bills/last-meter/${contractId}`);
+      setForm(prev => ({
+        ...prev,
+        contract_id: contractId,
+        water_old_meter: Number(res.data.last_water_meter || 0),
+        water_new_meter: '',
+        electric_old_meter: Number(res.data.last_electric_meter || 0),
+        electric_new_meter: ''
+      }));
+    } catch (err) {
+      notify(err.response?.data?.error || 'โหลดเลขมิเตอร์ล่าสุดไม่สำเร็จ', 'error');
+    }
+  }, [contracts, notify]);
 
   const fetchReferenceData = useCallback(async () => {
     try {
@@ -58,14 +93,42 @@ export default function Bills() {
         api.get('/settings')
       ]);
       setContracts(resContracts.data.filter(c => c.status === 'active'));
-      setRates({
+      const defaultRates = {
         water_rate: Number(resSettings.data.water_rate),
         electric_rate: Number(resSettings.data.electric_rate)
-      });
+      };
+      setRates(defaultRates);
+      setForm((current) => ({
+        ...current,
+        water_rate: current.water_rate || String(defaultRates.water_rate),
+        electric_rate: current.electric_rate || String(defaultRates.electric_rate)
+      }));
     } catch (err) {
       console.error(err);
     }
   }, []);
+
+  const requestedContractId = searchParams.get('contract_id');
+  useEffect(() => {
+    if (!requestedContractId || !contracts.length || requestedContractHandled.current) return;
+    const contract = contracts.find((item) => String(item.contract_id) === requestedContractId);
+    if (!contract) return;
+    requestedContractHandled.current = true;
+    Promise.resolve().then(() => {
+      setForm((current) => ({
+        ...current,
+        contract_id: String(contract.contract_id),
+        month: new Date().getMonth() + 1,
+        year: new Date().getFullYear(),
+        due_date: localDate(),
+        water_rate: String(rates.water_rate),
+        electric_rate: String(rates.electric_rate)
+      }));
+      setSelectedContractPrice(Number(contract.base_price || 0));
+      setShowModal(true);
+      handleContractChange(String(contract.contract_id));
+    });
+  }, [requestedContractId, contracts, rates.water_rate, rates.electric_rate, handleContractChange]);
 
   const fetchData = useCallback(async () => {
     try {
@@ -96,41 +159,11 @@ export default function Bills() {
     Promise.resolve().then(fetchReferenceData);
   }, [fetchReferenceData]);
 
-  // เมื่อเลือกสัญญา ให้ไปดึงมิเตอร์เก่า และค่าเช่าห้องมาตั้งต้น
-  const handleContractChange = async (contractId) => {
-    const found = contracts.find(c => c.contract_id === Number(contractId));
-    setSelectedContractPrice(found ? Number(found.base_price || 0) : 0);
-
-    if (!contractId) {
-      setForm(prev => ({
-        ...prev,
-        contract_id: '',
-        water_old_meter: 0,
-        electric_old_meter: 0
-      }));
-      return;
-    }
-
-    try {
-      const res = await api.get(`/bills/last-meter/${contractId}`);
-      setForm(prev => ({
-        ...prev,
-        contract_id: contractId,
-        water_old_meter: Number(res.data.last_water_meter || 0),
-        water_new_meter: '',
-        electric_old_meter: Number(res.data.last_electric_meter || 0),
-        electric_new_meter: ''
-      }));
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
   // คำนวณสรุปหน่วยและราคาทันที
   const waterUnits = Math.max(0, Number(form.water_new_meter || 0) - Number(form.water_old_meter || 0));
-  const waterCost = waterUnits * rates.water_rate;
+  const waterCost = waterUnits * Number(form.water_rate || 0);
   const electricUnits = Math.max(0, Number(form.electric_new_meter || 0) - Number(form.electric_old_meter || 0));
-  const electricCost = electricUnits * rates.electric_rate;
+  const electricCost = electricUnits * Number(form.electric_rate || 0);
   const extraChargesTotal = extraCharges.reduce((sum, charge) => sum + Number(charge.amount || 0), 0);
   const estimatedTotal = selectedContractPrice + waterCost + electricCost + extraChargesTotal;
 
@@ -155,6 +188,8 @@ export default function Bills() {
         electric_old_meter: Number(form.electric_old_meter),
         electric_new_meter: Number(form.electric_new_meter),
         due_date: form.due_date,
+        water_rate: Number(form.water_rate),
+        electric_rate: Number(form.electric_rate),
         extra_charges: extraCharges
           .filter((charge) => charge.description.trim() && charge.amount !== '')
           .map((charge) => ({ ...charge, amount: Number(charge.amount) }))
@@ -170,12 +205,46 @@ export default function Bills() {
         water_new_meter: '',
         electric_old_meter: 0,
         electric_new_meter: '',
-        due_date: ''
+        due_date: localDate(),
+        water_rate: String(rates.water_rate),
+        electric_rate: String(rates.electric_rate)
       });
       setExtraCharges([]);
       fetchData();
     } catch (err) {
       notify(err.response?.data?.error || err.response?.data?.message || 'ไม่สามารถออกบิลได้', 'error');
+    }
+  };
+
+  const openBillModalForContract = (contract) => {
+    setForm({
+      contract_id: String(contract.contract_id),
+      month: new Date().getMonth() + 1,
+      year: new Date().getFullYear(),
+      water_old_meter: 0,
+      water_new_meter: '',
+      electric_old_meter: 0,
+      electric_new_meter: '',
+      due_date: localDate(),
+      water_rate: String(rates.water_rate),
+      electric_rate: String(rates.electric_rate)
+    });
+    setSelectedContractPrice(Number(contract.base_price || 0));
+    setExtraCharges([]);
+    setShowModal(true);
+    handleContractChange(String(contract.contract_id));
+  };
+
+  const handleUpdateDueDate = async (event) => {
+    event.preventDefault();
+    if (!dueDateBill) return;
+    try {
+      await api.put(`/bills/${dueDateBill.bill_id}/due-date`, { due_date: dueDateValue });
+      notify('แก้วันครบกำหนดชำระแล้ว', 'success');
+      setDueDateBill(null);
+      fetchData();
+    } catch (err) {
+      notify(err.response?.data?.error || 'ไม่สามารถแก้วันครบกำหนดได้', 'error');
     }
   };
 
@@ -209,6 +278,11 @@ export default function Bills() {
   };
 
   const visibleBills = bills;
+  const contractsByFloor = contracts.reduce((groups, contract) => {
+    const floor = contract.floor ?? 'ไม่ระบุชั้น';
+    groups[floor] = [...(groups[floor] || []), contract];
+    return groups;
+  }, {});
   const visibleTotal = visibleBills.reduce((sum, bill) => sum + Number(bill.total_amount || 0), 0);
   const pendingBills = visibleBills.filter((bill) => bill.payment_status !== 'paid');
   const paidBills = visibleBills.filter((bill) => bill.payment_status === 'paid');
@@ -224,12 +298,52 @@ export default function Bills() {
           <p className="text-sm text-gray-500">ออกบิลมิเตอร์น้ำ-ไฟ และตรวจสอบการชำระเงิน</p>
         </div>
         <button 
-          onClick={() => setShowModal(true)} 
+          onClick={() => roomBillingListRef.current?.scrollIntoView({ behavior: 'smooth' })}
           className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-lg hover:bg-indigo-700 transition cursor-pointer font-medium shadow-sm"
         >
-          <FileText size={18} /> ออกบิลประจำเดือน
+          <FileText size={18} /> เลือกชั้นและห้องเพื่อออกบิล
         </button>
       </div>
+
+      <section ref={roomBillingListRef} className="scroll-mt-6 space-y-4 rounded-xl border border-gray-100 bg-white p-6 shadow-sm">
+        <div>
+          <h2 className="flex items-center gap-2 text-lg font-semibold text-gray-800">
+            <ReceiptText className="text-indigo-600" size={20} /> เลือกห้องตามชั้นเพื่อออกบิล
+          </h2>
+          <p className="mt-1 text-sm text-gray-500">กดออกบิลจากห้องที่มีผู้เช่าได้เลย ไม่ต้องค้นหาห้องในรายการ</p>
+        </div>
+        {Object.keys(contractsByFloor).length ? (
+          <div className="space-y-4">
+            {Object.entries(contractsByFloor)
+              .sort(([a], [b]) => Number(a) - Number(b))
+              .map(([floor, floorContracts]) => (
+                <section key={floor} className="space-y-2">
+                  <h3 className="border-b pb-2 text-sm font-semibold text-gray-700">ชั้น {floor}</h3>
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                    {floorContracts.map((contract) => (
+                      <article key={contract.contract_id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 p-3">
+                        <div className="min-w-0">
+                          <p className="font-semibold text-gray-800">ห้อง {contract.room_number}</p>
+                          <p className="truncate text-xs text-gray-500">{contract.first_name} {contract.last_name}</p>
+                          <p className="text-xs text-gray-500">ค่าเช่า ฿{Number(contract.base_price || 0).toLocaleString()}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => openBillModalForContract(contract)}
+                          className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-teal-700 px-3 py-2 text-xs font-semibold text-white hover:bg-teal-800"
+                        >
+                          <FileText size={14} /> ออกบิล
+                        </button>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              ))}
+          </div>
+        ) : (
+          <p className="rounded-lg bg-gray-50 p-4 text-sm text-gray-500">ยังไม่มีห้องที่มีสัญญาเช่าใช้งานอยู่</p>
+        )}
+      </section>
 
       {/* ตารางแสดงบิล */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-4">
@@ -303,6 +417,7 @@ export default function Bills() {
                   <th className="p-3">บิล #</th>
                   <th className="p-3">ห้อง / ผู้เช่า</th>
                   <th className="p-3">รอบเดือน</th>
+                  <th className="p-3">ครบกำหนด</th>
                   <th className="p-3">มิเตอร์น้ำ (เก่า ➔ ใหม่)</th>
                   <th className="p-3">มิเตอร์ไฟ (เก่า ➔ ใหม่)</th>
                   <th className="p-3">ยอดรวม</th>
@@ -321,13 +436,27 @@ export default function Bills() {
                       <div className="text-xs text-gray-400">{b.first_name} {b.last_name}</div>
                     </td>
                     <td className="p-3">{b.month}/{b.year}</td>
+                    <td className="p-3">
+                      <div className="whitespace-nowrap text-xs">{b.due_date ? new Date(`${String(b.due_date).slice(0, 10)}T00:00:00`).toLocaleDateString('th-TH') : '-'}</div>
+                      {b.payment_status === 'pending' && (
+                        <button
+                          type="button"
+                          onClick={() => { setDueDateBill(b); setDueDateValue(String(b.due_date).slice(0, 10)); }}
+                          className="mt-1 inline-flex items-center gap-1 text-xs text-indigo-600 hover:underline"
+                        >
+                          <CalendarDays size={13} /> แก้ไข
+                        </button>
+                      )}
+                    </td>
                     <td className="p-3 text-xs">
                       {b.water_old_meter ?? 0} ➔ {b.water_new_meter ?? b.water_unit}
                       <span className="text-indigo-600 block font-medium">({b.water_unit} หน่วย = ฿{b.water_amount})</span>
+                      {b.water_rate != null && <span className="block text-gray-400">฿{Number(b.water_rate).toLocaleString()}/หน่วย</span>}
                     </td>
                     <td className="p-3 text-xs">
                       {b.electric_old_meter ?? 0} ➔ {b.electric_new_meter ?? b.electric_unit}
                       <span className="text-indigo-600 block font-medium">({b.electric_unit} หน่วย = ฿{b.electric_amount})</span>
+                      {b.electric_rate != null && <span className="block text-gray-400">฿{Number(b.electric_rate).toLocaleString()}/หน่วย</span>}
                     </td>
                     <td className="p-3 font-semibold text-indigo-600">
                       ฿{Number(b.total_amount).toLocaleString()}
@@ -357,13 +486,25 @@ export default function Bills() {
                       </Link>
                     </td>
                     <td className="p-3">
-                      {b.slip_image ? (
-                        <button
-                          onClick={() => setViewSlip(b)}
-                          className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 font-medium bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-md transition"
-                        >
-                          <ImageIcon size={14} /> ดูสลิป
-                        </button>
+                      {b.has_slip ? (
+                        <div className="space-y-1">
+                          <button
+                            onClick={async () => {
+                              try {
+                                const response = await api.get(`/bills/${b.bill_id}/slip`);
+                                setViewSlip({ ...b, slip_image: response.data.slip_image });
+                              } catch (err) {
+                                notify(err.response?.data?.error || 'โหลดสลิปไม่สำเร็จ', 'error');
+                              }
+                            }}
+                            className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 font-medium bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-md transition"
+                          >
+                            <ImageIcon size={14} /> ดูสลิป
+                          </button>
+                          {b.slip_verification_message && (
+                            <span className="block max-w-40 text-xs text-gray-500">{b.slip_verification_message}</span>
+                          )}
+                        </div>
                       ) : (
                         <span className="text-xs text-gray-400">ยังไม่แนบ</span>
                       )}
@@ -412,21 +553,13 @@ export default function Bills() {
             </div>
 
             <form onSubmit={handleCreateBill} className="space-y-4">
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">เลือกสัญญาเช่า / ห้องพัก</label>
-                <select 
-                  required 
-                  value={form.contract_id} 
-                  onChange={(e) => handleContractChange(e.target.value)} 
-                  className="w-full border p-2.5 rounded-lg text-sm bg-gray-50 focus:bg-white outline-none focus:ring-2 focus:ring-indigo-500"
-                >
-                  <option value="">-- เลือกสัญญาเช่า --</option>
-                  {contracts.map(c => (
-                    <option key={c.contract_id} value={c.contract_id}>
-                      ห้อง {c.room_number} - คุณ{c.first_name} {c.last_name} (ค่าห้อง ฿{Number(c.base_price).toLocaleString()})
-                    </option>
-                  ))}
-                </select>
+              <div className="rounded-lg bg-teal-50 p-3 text-sm text-teal-900">
+                {(() => {
+                  const selectedContract = contracts.find((contract) => String(contract.contract_id) === String(form.contract_id));
+                  return selectedContract
+                    ? <>ห้อง {selectedContract.room_number} · ชั้น {selectedContract.floor} · {selectedContract.first_name} {selectedContract.last_name}</>
+                    : 'ไม่พบสัญญาห้องที่เลือก';
+                })()}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -443,7 +576,9 @@ export default function Bills() {
               {/* บล็อกมิเตอร์น้ำ */}
               <div className="p-3 bg-blue-50/60 rounded-xl border border-blue-100 space-y-2">
                 <div className="flex justify-between items-center">
-                  <span className="text-xs font-semibold text-blue-900">มิเตอร์น้ำ (หน่วยละ {rates.water_rate} บาท)</span>
+                  <label className="text-xs font-semibold text-blue-900">มิเตอร์น้ำ (บาท / หน่วย)
+                    <input type="number" min="0" step="0.01" required value={form.water_rate} onChange={(e) => setForm({...form, water_rate: e.target.value})} className="ml-2 w-24 rounded border bg-white px-2 py-1 text-xs" />
+                  </label>
                   <span className="text-xs font-medium text-blue-700">ใช้ไป: {waterUnits} หน่วย (฿{waterCost.toLocaleString()})</span>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -468,7 +603,9 @@ export default function Bills() {
               {/* บล็อกมิเตอร์ไฟ */}
               <div className="p-3 bg-amber-50/60 rounded-xl border border-amber-100 space-y-2">
                 <div className="flex justify-between items-center">
-                  <span className="text-xs font-semibold text-amber-900">มิเตอร์ไฟ (หน่วยละ {rates.electric_rate} บาท)</span>
+                  <label className="text-xs font-semibold text-amber-900">มิเตอร์ไฟ (บาท / หน่วย)
+                    <input type="number" min="0" step="0.01" required value={form.electric_rate} onChange={(e) => setForm({...form, electric_rate: e.target.value})} className="ml-2 w-24 rounded border bg-white px-2 py-1 text-xs" />
+                  </label>
                   <span className="text-xs font-medium text-amber-700">ใช้ไป: {electricUnits} หน่วย (฿{electricCost.toLocaleString()})</span>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -642,6 +779,29 @@ export default function Bills() {
             <div className="flex gap-3 pt-1">
               <button type="button" onClick={() => setPaymentBill(null)} className="flex-1 rounded-lg bg-gray-100 py-2.5 text-sm font-medium text-gray-700">ยกเลิก</button>
               <button type="submit" className="flex-1 rounded-lg bg-emerald-600 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700">ยืนยันรับชำระ</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {dueDateBill && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <form onSubmit={handleUpdateDueDate} className="w-full max-w-sm space-y-4 rounded-xl bg-white p-5 shadow-xl">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div>
+                <h3 className="font-semibold text-gray-800">แก้วันครบกำหนดบิล #{dueDateBill.bill_id}</h3>
+                <p className="mt-1 text-xs text-gray-500">ห้อง {dueDateBill.room_number}</p>
+              </div>
+              <button type="button" onClick={() => setDueDateBill(null)} className="text-gray-400" aria-label="ปิด">
+                <X size={18} />
+              </button>
+            </div>
+            <label className="block text-sm text-gray-700">วันครบกำหนดใหม่
+              <input type="date" required value={dueDateValue} onChange={(event) => setDueDateValue(event.target.value)} className="mt-1 w-full rounded-lg border p-2.5" />
+            </label>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setDueDateBill(null)} className="rounded-lg border px-4 py-2 text-sm">ยกเลิก</button>
+              <button type="submit" className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white">บันทึกวันครบกำหนด</button>
             </div>
           </form>
         </div>

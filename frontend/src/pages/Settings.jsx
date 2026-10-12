@@ -20,7 +20,8 @@ export default function Settings() {
     dormitory_name: 'ระบบจัดการหอพัก',
     dormitory_address: '',
     contact_phone: '',
-    payment_instructions: ''
+    payment_instructions: '',
+    promptpay_number: ''
   });
   const [roomTypes, setRoomTypes] = useState([]);
   const [newType, setNewType] = useState({ room_type: '', base_price: '' });
@@ -41,7 +42,8 @@ export default function Settings() {
           dormitory_name: res.data.dormitory_name || 'ระบบจัดการหอพัก',
           dormitory_address: res.data.dormitory_address || '',
           contact_phone: res.data.contact_phone || '',
-          payment_instructions: res.data.payment_instructions || ''
+          payment_instructions: res.data.payment_instructions || '',
+          promptpay_number: res.data.promptpay_number || ''
         });
         setRoomTypes(res.data.room_types);
       } catch (err) {
@@ -224,6 +226,23 @@ export default function Settings() {
                   className="mt-1 w-full rounded-lg border p-2.5"
                 />
               </label>
+              <label className="text-sm text-gray-700">
+                เบอร์พร้อมเพย์สำหรับรับชำระ
+                <input
+                  type="tel"
+                  inputMode="numeric"
+                  pattern="[0-9]{10}"
+                  maxLength="10"
+                  value={dormitory.promptpay_number}
+                  onChange={(e) => setDormitory({
+                    ...dormitory,
+                    promptpay_number: e.target.value.replace(/\D/g, '').slice(0, 10)
+                  })}
+                  className="mt-1 w-full rounded-lg border p-2.5"
+                  placeholder="เช่น 0948860469"
+                />
+                <span className="mt-1 block text-xs text-gray-500">เว้นว่างเพื่อไม่แสดงช่องทางพร้อมเพย์ในบิล</span>
+              </label>
             </div>
             <button className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700">
               <Save size={16} /> บันทึกข้อมูลหอพัก
@@ -391,10 +410,12 @@ export default function Settings() {
                     />
                     <input
                       type="tel"
-                      maxLength="50"
+                      inputMode="numeric"
+                      pattern="[0-9]{10}"
+                      maxLength="10"
                       value={adminForm.phone}
-                      onChange={(e) => setAdminForm({ ...adminForm, phone: e.target.value })}
-                      placeholder="เบอร์โทรศัพท์ (ไม่บังคับ)"
+                      onChange={(e) => setAdminForm({ ...adminForm, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })}
+                      placeholder="เบอร์โทรศัพท์ 10 หลัก (ไม่บังคับ)"
                       className="rounded-lg border p-2.5 text-sm"
                     />
                     <button

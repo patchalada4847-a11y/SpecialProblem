@@ -26,10 +26,10 @@ exports.createAdmin = async (req, res) => {
     typeof password !== 'string' || password.length < 8 || password.length > 128 ||
     typeof first_name !== 'string' || !first_name.trim() || first_name.trim().length > 100 ||
     typeof last_name !== 'string' || !last_name.trim() || last_name.trim().length > 100 ||
-    typeof phone !== 'string' || phone.length > 50
+    typeof phone !== 'string' || (phone !== '' && !/^\d{10}$/.test(phone))
   ) {
     return res.status(400).json({
-      error: 'กรุณากรอกชื่อผู้ใช้ ชื่อ นามสกุล และรหัสผ่านอย่างน้อย 8 ตัวอักษรให้ถูกต้อง'
+      error: 'กรุณากรอกชื่อผู้ใช้ ชื่อ นามสกุล รหัสผ่านให้ถูกต้อง และเบอร์โทรต้องมี 10 หลัก'
     });
   }
 

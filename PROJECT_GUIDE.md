@@ -14,7 +14,8 @@
 - กำหนดประเภท/ราคาห้อง อัตราค่าน้ำ ค่าไฟ และข้อมูลหอพัก
 - ออกบิลจากค่าเช่า เลขมิเตอร์น้ำ/ไฟ และรายการค่าใช้จ่ายเพิ่มเติมที่ระบุเอง
 - ค้นหาและกรองบิลตามรอบเดือนและสถานะ
-- ตรวจสลิป บันทึกวิธีรับชำระ แล้วเปลี่ยนสถานะบิลเป็นชำระแล้ว
+- ตรวจสลิปที่ผู้เช่าแนบ บันทึกผลตรวจ/วิธีรับชำระ แล้วเปลี่ยนสถานะบิลเป็นชำระแล้ว
+- รับการแจ้งเตือน LINE เมื่อมีสลิปส่งเข้ามา หากกำหนด LINE Messaging API
 - เพิ่มและลบบัญชีแอดมินได้เฉพาะแอดมินหลัก
 - ดูและพิมพ์ใบแจ้งหนี้หรือใบเสร็จเป็นกระดาษ/PDF
 - ดูแดชบอร์ด รายงานรายรับ รายจ่าย กำไร สถานะห้อง และส่งออก CSV
@@ -115,7 +116,7 @@ Frontend Axios base URL ปัจจุบันกำหนดเป็น `htt
 | บิล | `/bills`, `/bills/last-meter/:contract_id` | ออกบิลพร้อมค่าเช่า มิเตอร์ และรายการเสริม; admin |
 | เอกสารบิล | `/bills/:bill_id` | admin หรือเจ้าของบิล; คืนข้อมูลใบแจ้งหนี้/ใบเสร็จสำหรับพิมพ์ |
 | การเงิน | `/transactions`, `/transactions/expenses`, `/transactions/pay-bill` | รายงาน/CRUD รายจ่าย และยืนยันรับเงิน; admin |
-| ผู้เช่า | `/tenant/me`, `/tenant/my-bills`, `/tenant/upload-slip`, `/tenant/update-profile` | ข้อมูลและการทำรายการของผู้เช่าที่ login |
+| ผู้เช่า | `/tenant/me`, `/tenant/my-bills`, `/tenant/upload-slip`, `/tenant/update-profile` | ข้อมูลและการทำรายการของผู้เช่าที่ login; การแนบสลิปตรวจแบบ manual เป็นค่าเริ่มต้น หรือจำลองได้ในเครื่อง |
 | KYC | `/tenant/pending-kyc`, `/tenant/verify-kyc` | ตรวจและอนุมัติเอกสาร; admin |
 | ตั้งค่า | `/settings`, `/settings/rates`, `/settings/dormitory`, `/settings/room-types` | ค่าน้ำ/ไฟ ประเภทห้อง และข้อมูลหอพัก; admin |
 | รายงาน | `/reports/dashboard`, `/reports/monthly-financial`, `/reports/rooms`, `/reports/tenants`, `/reports/payments` | Dashboard/รายงาน; admin |
@@ -131,7 +132,7 @@ Frontend Axios base URL ปัจจุบันกำหนดเป็น `htt
 - `m_contracts` — ความสัมพันธ์ผู้เช่า/ห้อง วันเริ่ม–สิ้นสุด เงินประกัน สถานะ
 - `t_bills` — รอบบิล ค่าเช่า มิเตอร์ หน่วย/ยอดน้ำไฟ รายการเสริมใน `extra_charges` วันครบกำหนด และสถานะชำระ
 - `t_transactions` — รายรับ/รายจ่าย; รายรับจากบิลเก็บวิธีชำระ เลขอ้างอิง หมายเหตุ และ `bill_id`
-- `m_billing_settings` — เรตน้ำ/ไฟและข้อมูลหอพักที่แสดงบนเอกสาร
+- `m_billing_settings` — เรตน้ำ/ไฟ ข้อมูลหอพัก และเบอร์พร้อมเพย์ที่แสดงบนบิล
 - `m_room_types` — ประเภทห้องและราคาเริ่มต้น
 - `app_schema_migrations` — รุ่น migration ที่เคยรัน
 
@@ -142,6 +143,10 @@ Frontend Axios base URL ปัจจุบันกำหนดเป็น `htt
 การจัดสรรผู้เช่าใช้หน้าต่างค้นหาและเลือกรายการแบบแบ่งหน้า แทน dropdown ยาว เรียกได้จากรายชื่อผู้เช่าที่ยังไม่มีห้อง หรือจากแถวห้องว่างโดยตรง
 
 การยืนยันชำระล็อกแถวบิลและอัปเดตสถานะพร้อมสร้างรายการรายรับภายใน transaction เดียว ป้องกันการบันทึกรายรับซ้ำด้วยความสัมพันธ์ `t_transactions.bill_id` ซึ่งมี unique partial index
+
+การแนบสลิปตรวจชนิดไฟล์และข้อมูลภาพก่อนบันทึก ค่าเริ่มต้น `SLIPOK_MODE=manual` ไม่ยืนยันยอดอัตโนมัติ สำหรับ API จริง ตั้ง `SLIPOK_MODE=api`, `SLIPOK_API_KEY` และ `SLIPOK_BRANCH_ID` ใน `backend/.env`; ระบบส่งรูป/ยอดบิลไป `https://api.slipok.com/api/line/apikey/{branchId}` พร้อม `log: true` เพื่อให้ SlipOK ตรวจบัญชีผู้รับและสลิปซ้ำ และระบบตรวจยอดกับเก็บ `transRef` กันใช้ซ้ำในฐานข้อมูลด้วย **อย่าเปิด API mode จนกว่าจะได้รับการยืนยัน API Key/Branch ID จาก SlipOK** สำหรับทดสอบในเครื่องตั้ง `SLIPOK_MODE=mock` และเลือก `SLIPOK_MOCK_RESULT=approved|rejected|duplicate|review` โดย `approved` จะทำเครื่องหมาย DEMO ในรายการรายรับ และโหมดจำลองถูกปิดใน production เสมอ การแจ้ง LINE ใช้ `LINE_CHANNEL_ACCESS_TOKEN` และ `LINE_ADMIN_RECIPIENT_ID`; หากไม่กำหนด ระบบจะเขียนข้อความแจ้งเตือนลง log แทน
+
+สัญญาเช่าที่สร้างใหม่มีระยะเวลา 1 ปีจากวันเริ่ม และคำขอต่ออายุจะต่อจากวันสิ้นสุดเดิมอีก 1 ปีโดยอัตโนมัติ อัตราค่าน้ำ/ไฟถูกบันทึกแยกกับบิลเพื่อรักษาราคาที่ใช้ตอนออกบิล; บิลที่ออกก่อน migration อาจไม่มีข้อมูลอัตราต่อหน่วยเดิม
 
 **ก่อน deploy หรือเปลี่ยน schema จริง:** สำรองฐานข้อมูลก่อน แม้ migration ปัจจุบันจะเน้นเพิ่ม schema โดยไม่ลบข้อมูลก็ตาม
 
@@ -176,7 +181,7 @@ cd ..\backend
 npm run dev
 ```
 
-Backend `npm test` เป็น placeholder ที่จบด้วย error เพราะยังไม่มี test suite จริง จึงอย่าใช้เป็นหลักฐานว่าโค้ดเสียหรือผ่านการทดสอบ Frontend build และ ESLint เฉพาะไฟล์ที่แก้เป็นการตรวจที่มีอยู่แล้วในโปรเจกต์
+Backend `npm test` รันทดสอบ unit ด้วย Node.js test runner; Frontend build และ ESLint เฉพาะไฟล์ที่แก้เป็นการตรวจที่มีอยู่แล้วในโปรเจกต์
 
 ## 9. จุดที่ยังควรทำก่อน production
 
@@ -184,6 +189,7 @@ Backend `npm test` เป็น placeholder ที่จบด้วย error �
 - ย้าย frontend API URL จาก localhost ไป environment configuration และตั้งค่า HTTPS/CORS ตามโดเมนจริง
 - เพิ่ม automated tests สำหรับ authorization, migration, การออกบิล และ transaction การยืนยันชำระ
 - ตรวจการจำกัดขนาด/การจัดเก็บไฟล์ KYC และสลิป (ปัจจุบันส่งเป็น base64 ผ่าน JSON)
+- ติดต่อ SlipOK เพื่อรับ API Key/Branch ID ก่อนทดสอบการเชื่อมต่อจริง; อย่าเปิด `SLIPOK_MODE=api` ก่อนยืนยันข้อมูลบัญชี และโหมดจำลองไม่ใช่หลักฐานยืนยันการโอนเงินจริง
 - วางแผน backup/restore, monitoring และแจ้งเตือนบิลค้างชำระ/ใกล้ครบกำหนด
 
 ## 10. วิธีใช้เอกสารนี้เป็นบริบทให้ AI ตัวอื่น

@@ -53,8 +53,10 @@ const { verifyToken, authorizeRoles } = require('../middleware/authMiddleware');
  *       200: { description: "Last meter readings" }
  */
 router.get('/last-meter/:contract_id', verifyToken, authorizeRoles('admin'), billController.getLastMeter);
+router.get('/:bill_id/slip', verifyToken, authorizeRoles('admin', 'tenant'), billController.getBillSlip);
 router.get('/:bill_id', verifyToken, authorizeRoles('admin', 'tenant'), billController.getBillById);
 router.get('/', verifyToken, authorizeRoles('admin'), billController.getBills);
 router.post('/', verifyToken, authorizeRoles('admin'), billController.createBill);
+router.put('/:bill_id/due-date', verifyToken, authorizeRoles('admin'), billController.updateBillDueDate);
 
 module.exports = router;

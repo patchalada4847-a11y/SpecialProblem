@@ -20,7 +20,10 @@ const expectedColumns = {
     water_old_meter: 'numeric', water_new_meter: 'numeric', water_unit: 'numeric',
     water_amount: 'numeric', electric_old_meter: 'numeric', electric_new_meter: 'numeric',
     electric_unit: 'numeric', electric_amount: 'numeric', total_amount: 'numeric',
+    water_rate: 'numeric', electric_rate: 'numeric',
     payment_status: 'text', due_date: 'date', slip_image: 'text',
+    slip_verification_status: 'text', slip_verification_message: 'text',
+    slip_trans_ref: 'text', slip_verified_at: 'timestamp',
     extra_charges: 'jsonb', created_at: 'timestamp'
   },
   t_transactions: {
@@ -31,7 +34,7 @@ const expectedColumns = {
   m_billing_settings: {
     setting_id: 'integer', water_rate: 'numeric', electric_rate: 'numeric',
     dormitory_name: 'text', dormitory_address: 'text', contact_phone: 'text',
-    payment_instructions: 'text'
+    payment_instructions: 'text', promptpay_number: 'text'
   },
   m_room_types: {
     type_id: 'id', room_type: 'text', base_price: 'numeric'
@@ -375,6 +378,38 @@ const migrations = [
       `ALTER TABLE m_contract_renewal_requests
        ADD CONSTRAINT m_contract_renewal_requests_status_valid_check
        CHECK (status IN ('pending', 'awaiting_tenant', 'awaiting_admin', 'approved', 'rejected'))`
+    ]
+  },
+  {
+    version: 8,
+    name: 'slip verification result tracking',
+    statements: [
+      `ALTER TABLE t_bills
+       ADD COLUMN IF NOT EXISTS slip_verification_status TEXT NOT NULL DEFAULT 'not_submitted'`,
+      `ALTER TABLE t_bills
+       ADD COLUMN IF NOT EXISTS slip_verification_message TEXT`,
+      `ALTER TABLE t_bills
+       ADD COLUMN IF NOT EXISTS slip_trans_ref TEXT`,
+      `ALTER TABLE t_bills
+       ADD COLUMN IF NOT EXISTS slip_verified_at TIMESTAMPTZ`,
+      `CREATE UNIQUE INDEX IF NOT EXISTS t_bills_slip_trans_ref_uidx
+       ON t_bills (slip_trans_ref) WHERE slip_trans_ref IS NOT NULL`
+    ]
+  },
+  {
+    version: 9,
+    name: 'bill utility rates and unit price history',
+    statements: [
+      `ALTER TABLE t_bills ADD COLUMN IF NOT EXISTS water_rate NUMERIC(10, 2)`,
+      `ALTER TABLE t_bills ADD COLUMN IF NOT EXISTS electric_rate NUMERIC(10, 2)`
+    ]
+  },
+  {
+    version: 10,
+    name: 'configurable PromptPay payment number',
+    statements: [
+      `ALTER TABLE m_billing_settings
+       ADD COLUMN IF NOT EXISTS promptpay_number TEXT NOT NULL DEFAULT '0948860469'`
     ]
   }
 ];

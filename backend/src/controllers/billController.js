@@ -1,6 +1,12 @@
 const db = require('../config/db');
 const { parsePagination, respondWithPagination } = require('../utils/pagination');
 
+function isValidDate(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
 exports.getBills = async (req, res) => {
   try {
     const pagination = parsePagination(req.query);
@@ -16,10 +22,12 @@ exports.getBills = async (req, res) => {
       SELECT 
         b.bill_id, b.month, b.year, b.rent_amount,
         b.water_unit, b.water_amount, b.electric_unit, b.electric_amount,
+        b.water_rate, b.electric_rate,
         b.water_old_meter, b.water_new_meter,
         b.electric_old_meter, b.electric_new_meter,
         b.total_amount, b.payment_status, b.due_date,
-        b.slip_image, b.extra_charges,
+        (b.slip_image IS NOT NULL) AS has_slip,
+        b.slip_verification_status, b.slip_verification_message, b.extra_charges,
         r.room_number,
         u.first_name, u.last_name
       FROM t_bills b
@@ -51,6 +59,32 @@ exports.getBills = async (req, res) => {
   }
 };
 
+exports.getBillSlip = async (req, res) => {
+  const billId = Number(req.params.bill_id);
+  if (!Number.isInteger(billId) || billId < 1) {
+    return res.status(400).json({ error: 'รหัสบิลไม่ถูกต้อง' });
+  }
+
+  try {
+    const result = await db.query(
+      `SELECT b.slip_image
+       FROM t_bills b
+       JOIN m_contracts c ON c.contract_id = b.contract_id
+       WHERE b.bill_id = $1
+         AND ($3 = 'admin' OR c.tenant_id = $2)
+         AND b.slip_image IS NOT NULL`,
+      [billId, req.user.user_id || req.user.id, req.user.role]
+    );
+    if (!result.rows.length) {
+      return res.status(404).json({ error: 'ไม่พบสลิป หรือคุณไม่มีสิทธิ์เข้าถึง' });
+    }
+    res.json({ slip_image: result.rows[0].slip_image });
+  } catch (err) {
+    console.error('Error fetching bill slip:', err);
+    res.status(500).json({ error: 'ไม่สามารถโหลดสลิปได้' });
+  }
+};
+
 exports.getBillById = async (req, res) => {
   const billId = Number(req.params.bill_id);
   if (!Number.isInteger(billId) || billId < 1) {
@@ -62,7 +96,8 @@ exports.getBillById = async (req, res) => {
       `SELECT
          b.bill_id, b.month, b.year, b.rent_amount,
          b.water_unit, b.water_amount, b.water_old_meter, b.water_new_meter,
-         b.electric_unit, b.electric_amount, b.electric_old_meter, b.electric_new_meter,
+         b.water_rate, b.electric_unit, b.electric_amount, b.electric_old_meter, b.electric_new_meter,
+         b.electric_rate,
          b.total_amount, b.payment_status, b.due_date,
          b.extra_charges,
          r.room_number, r.floor, r.room_type,
@@ -70,7 +105,8 @@ exports.getBillById = async (req, res) => {
          payment.transaction_date AS paid_at, payment.payment_method,
          payment.payment_reference, payment.notes,
          settings.dormitory_name, settings.dormitory_address,
-         settings.contact_phone, settings.payment_instructions
+         settings.contact_phone, settings.payment_instructions,
+         settings.promptpay_number
        FROM t_bills b
        JOIN m_contracts c ON b.contract_id = c.contract_id
        JOIN m_rooms r ON c.room_id = r.room_id
@@ -128,17 +164,52 @@ exports.getLastMeter = async (req, res) => {
   }
 };
 
+exports.updateBillDueDate = async (req, res) => {
+  const billId = Number(req.params.bill_id);
+  const dueDate = req.body?.due_date;
+  if (!Number.isInteger(billId) || billId < 1 || !isValidDate(dueDate)) {
+    return res.status(400).json({ error: 'กรุณาระบุรหัสบิลและวันครบกำหนดที่ถูกต้อง' });
+  }
+
+  try {
+    const result = await db.query(
+      `UPDATE t_bills SET due_date = $1::date
+       WHERE bill_id = $2 AND payment_status = 'pending'
+       RETURNING bill_id, due_date`,
+      [dueDate, billId]
+    );
+    if (!result.rows.length) {
+      const existing = await db.query('SELECT bill_id FROM t_bills WHERE bill_id = $1', [billId]);
+      return existing.rows.length
+        ? res.status(409).json({ error: 'แก้วันครบกำหนดได้เฉพาะบิลที่ยังรอชำระ' })
+        : res.status(404).json({ error: 'ไม่พบบิลที่ระบุ' });
+    }
+    res.json({ message: 'แก้วันครบกำหนดแล้ว', bill: result.rows[0] });
+  } catch (error) {
+    console.error('Error updating bill due date:', error);
+    res.status(500).json({ error: 'ไม่สามารถแก้วันครบกำหนดได้' });
+  }
+};
+
 // ออกบิลประจำเดือน
 exports.createBill = async (req, res) => {
   const { 
     contract_id, month, year, 
     water_old_meter, water_new_meter, 
     electric_old_meter, electric_new_meter, 
-    due_date,
+    due_date, water_rate, electric_rate,
     extra_charges = []
   } = req.body || {};
 
   try {
+    if (
+      !Number.isInteger(Number(contract_id)) || Number(contract_id) < 1 ||
+      !Number.isInteger(Number(month)) || Number(month) < 1 || Number(month) > 12 ||
+      !Number.isInteger(Number(year)) || Number(year) < 2000 ||
+      !isValidDate(due_date)
+    ) {
+      return res.status(400).json({ error: 'กรุณาระบุสัญญา รอบบิล และวันครบกำหนดให้ถูกต้อง' });
+    }
     if (!Array.isArray(extra_charges) || extra_charges.length > 20) {
       return res.status(400).json({ error: 'รายการค่าใช้จ่ายเพิ่มเติมไม่ถูกต้อง (เพิ่มได้สูงสุด 20 รายการ)' });
     }
@@ -178,10 +249,10 @@ exports.createBill = async (req, res) => {
 
     // ดึงค่าเช่าห้องตามสัญญา
     const contractQuery = `
-      SELECT c.contract_id, r.base_price 
+      SELECT c.contract_id, r.base_price
       FROM m_contracts c 
       JOIN m_rooms r ON c.room_id = r.room_id 
-      WHERE c.contract_id = $1;
+      WHERE c.contract_id = $1 AND c.status = 'active';
     `;
     const contractResult = await db.query(contractQuery, [contract_id]);
 
@@ -193,9 +264,17 @@ exports.createBill = async (req, res) => {
     const ratesResult = await db.query(
       'SELECT water_rate, electric_rate FROM m_billing_settings WHERE setting_id = 1'
     );
-    const { water_rate, electric_rate } = ratesResult.rows[0];
-    const water_amount = water_unit * Number(water_rate);
-    const electric_amount = electric_unit * Number(electric_rate);
+    const defaultRates = ratesResult.rows[0];
+    const parsedWaterRate = water_rate === undefined ? Number(defaultRates.water_rate) : Number(water_rate);
+    const parsedElectricRate = electric_rate === undefined ? Number(defaultRates.electric_rate) : Number(electric_rate);
+    if (
+      !Number.isFinite(parsedWaterRate) || parsedWaterRate < 0 ||
+      !Number.isFinite(parsedElectricRate) || parsedElectricRate < 0
+    ) {
+      return res.status(400).json({ error: 'อัตราค่าน้ำและค่าไฟต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป' });
+    }
+    const water_amount = water_unit * parsedWaterRate;
+    const electric_amount = electric_unit * parsedElectricRate;
     const extraChargesTotal = parsedCharges.reduce((sum, charge) => sum + charge.amount, 0);
     const total_amount = rent_amount + water_amount + electric_amount + extraChargesTotal;
 
@@ -204,9 +283,9 @@ exports.createBill = async (req, res) => {
         contract_id, month, year, rent_amount, 
         water_old_meter, water_new_meter, water_unit, water_amount,
         electric_old_meter, electric_new_meter, electric_unit, electric_amount, 
-        total_amount, payment_status, due_date, extra_charges
+        total_amount, payment_status, due_date, extra_charges, water_rate, electric_rate
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'pending', $14, $15::jsonb)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'pending', $14, $15::jsonb, $16, $17)
       RETURNING *;
     `;
 
@@ -214,7 +293,7 @@ exports.createBill = async (req, res) => {
       contract_id, month, year, rent_amount,
       parsedWaterOld, parsedWaterNew, water_unit, water_amount,
       parsedElectricOld, parsedElectricNew, electric_unit, electric_amount,
-      total_amount, due_date, JSON.stringify(parsedCharges)
+      total_amount, due_date, JSON.stringify(parsedCharges), parsedWaterRate, parsedElectricRate
     ]);
 
     res.status(201).json({

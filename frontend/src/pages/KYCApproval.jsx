@@ -73,9 +73,16 @@ export default function KYCApproval() {
                   <td className="p-3">{u.username}</td>
                   <td className="p-3">{u.phone || '-'}</td>
                   <td className="p-3">
-                    {u.kyc_document ? (
+                    {u.has_kyc_document ? (
                       <button
-                        onClick={() => setViewDoc(u)}
+                        onClick={async () => {
+                          try {
+                            const response = await api.get(`/tenant/pending-kyc/${u.user_id}/document`);
+                            setViewDoc({ ...u, kyc_document: response.data.document });
+                          } catch (err) {
+                            notify(err.response?.data?.error || 'โหลดเอกสารไม่สำเร็จ', 'error');
+                          }
+                        }}
                         className="inline-flex items-center gap-1 text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-600 px-2.5 py-1 rounded-md font-medium"
                       >
                         <ImageIcon size={14} /> ตรวจสอบเอกสาร

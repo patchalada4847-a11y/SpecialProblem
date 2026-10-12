@@ -9,7 +9,7 @@ exports.getContracts = async (req, res) => {
     const query = `
       SELECT 
         c.contract_id, c.tenant_id, c.room_id, c.start_date, c.end_date, c.deposit, c.status,
-        r.room_number, r.base_price,
+        r.room_number, r.floor, r.base_price,
         u.first_name, u.last_name, u.phone
       FROM m_contracts c
       JOIN m_rooms r ON c.room_id = r.room_id
@@ -44,8 +44,6 @@ exports.createContract = async (req, res) => {
     !Number.isInteger(parsedRoomId) || parsedRoomId < 1 ||
     !Number.isInteger(parsedTenantId) || parsedTenantId < 1 ||
     typeof start_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(start_date) ||
-    typeof end_date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(end_date) ||
-    start_date > end_date ||
     !Number.isFinite(parsedDeposit) || parsedDeposit < 0
   ) {
     return res.status(400).json({ error: 'กรุณาตรวจสอบผู้เช่า ห้องพัก วันที่สัญญา และเงินประกัน' });
@@ -73,9 +71,9 @@ exports.createContract = async (req, res) => {
 
       const contract = await client.query(
         `INSERT INTO m_contracts (room_id, tenant_id, start_date, end_date, deposit, status)
-         VALUES ($1, $2, $3, $4, $5, 'active')
+         VALUES ($1, $2, $3::date, ($3::date + INTERVAL '1 year')::date, $4, 'active')
          RETURNING *`,
-        [parsedRoomId, parsedTenantId, start_date, end_date, parsedDeposit]
+        [parsedRoomId, parsedTenantId, start_date, parsedDeposit]
       );
       await client.query("UPDATE m_rooms SET status = 'occupied' WHERE room_id = $1", [parsedRoomId]);
       return { contract: contract.rows[0] };
@@ -123,6 +121,15 @@ exports.updateContractStatus = async (req, res) => {
       if (effectiveEndDate && effectiveStartDate > String(effectiveEndDate).slice(0, 10)) {
         return { invalidDateRange: true };
       }
+      if (status === 'active' && effectiveEndDate) {
+        const expectedEndDate = await client.query(
+          `SELECT (($1::date + INTERVAL '1 year')::date)::text AS end_date`,
+          [effectiveStartDate]
+        );
+        if (String(effectiveEndDate).slice(0, 10) !== expectedEndDate.rows[0].end_date) {
+          return { invalidDuration: true };
+        }
+      }
 
       const result = await client.query(
         `UPDATE m_contracts
@@ -152,6 +159,9 @@ exports.updateContractStatus = async (req, res) => {
     }
     if (updateResult.invalidDateRange) {
       return res.status(400).json({ error: 'วันเริ่มสัญญาต้องไม่อยู่หลังวันสิ้นสุดสัญญา' });
+    }
+    if (updateResult.invalidDuration) {
+      return res.status(400).json({ error: 'สัญญาเช่าที่ใช้งานต้องมีระยะเวลา 1 ปี' });
     }
 
     res.json({ message: 'Contract status updated', contract: updateResult.contract });

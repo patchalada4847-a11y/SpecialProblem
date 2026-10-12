@@ -6,6 +6,15 @@ import Pagination from '../components/Pagination';
 import ContractAssignmentModal from '../components/ContractAssignmentModal';
 import TenantDocumentsModal from '../components/TenantDocumentsModal';
 
+const oneYearAfter = (value) => {
+  if (!value) return '';
+  const date = new Date(`${value}T00:00:00`);
+  const month = date.getMonth();
+  date.setFullYear(date.getFullYear() + 1);
+  if (date.getMonth() !== month) date.setDate(0);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+};
+
 export default function Tenants() {
   const notify = useToast();
   const [contracts, setContracts] = useState([]);
@@ -100,6 +109,7 @@ export default function Tenants() {
     try {
       await api.put(`/contracts/${editingContract.contract_id}`, {
         ...contractForm,
+        end_date: contractForm.status === 'active' ? oneYearAfter(contractForm.start_date) : contractForm.end_date,
         deposit: Number(contractForm.deposit)
       });
       setEditingContract(null);
@@ -223,7 +233,7 @@ export default function Tenants() {
                 <input required value={tenantForm.last_name} onChange={(e) => setTenantForm({ ...tenantForm, last_name: e.target.value })} className="mt-1 w-full rounded-lg border p-2" />
               </label>
               <label className="block text-sm">เบอร์โทรศัพท์
-                <input value={tenantForm.phone} onChange={(e) => setTenantForm({ ...tenantForm, phone: e.target.value })} className="mt-1 w-full rounded-lg border p-2" />
+                <input type="tel" inputMode="numeric" pattern="[0-9]{10}" maxLength="10" value={tenantForm.phone} onChange={(e) => setTenantForm({ ...tenantForm, phone: e.target.value.replace(/\D/g, '').slice(0, 10) })} className="mt-1 w-full rounded-lg border p-2" />
               </label>
               <button className="w-full rounded-lg bg-indigo-600 py-2 text-white">บันทึกข้อมูล</button>
             </form>
@@ -240,10 +250,15 @@ export default function Tenants() {
                 </button>
               </div>
               <label className="block text-sm">วันเริ่มสัญญา
-                <input type="date" required value={contractForm.start_date} onChange={(e) => setContractForm({ ...contractForm, start_date: e.target.value })} className="mt-1 w-full rounded-lg border p-2" />
+                <input type="date" required value={contractForm.start_date} onChange={(e) => setContractForm({
+                  ...contractForm,
+                  start_date: e.target.value,
+                  end_date: contractForm.status === 'active' ? oneYearAfter(e.target.value) : contractForm.end_date
+                })} className="mt-1 w-full rounded-lg border p-2" />
               </label>
               <label className="block text-sm">วันสิ้นสุดสัญญา
-                <input type="date" required value={contractForm.end_date} onChange={(e) => setContractForm({ ...contractForm, end_date: e.target.value })} className="mt-1 w-full rounded-lg border p-2" />
+                <input type="date" required readOnly={contractForm.status === 'active'} value={contractForm.status === 'active' ? oneYearAfter(contractForm.start_date) : contractForm.end_date} onChange={(e) => setContractForm({ ...contractForm, end_date: e.target.value })} className={`mt-1 w-full rounded-lg border p-2 ${contractForm.status === 'active' ? 'bg-gray-100' : ''}`} />
+                {contractForm.status === 'active' && <span className="mt-1 block text-xs text-gray-500">สัญญาที่ใช้งานกำหนดระยะเวลา 1 ปี</span>}
               </label>
               <label className="block text-sm">เงินประกัน
                 <input type="number" min="0" required value={contractForm.deposit} onChange={(e) => setContractForm({ ...contractForm, deposit: e.target.value })} className="mt-1 w-full rounded-lg border p-2" />

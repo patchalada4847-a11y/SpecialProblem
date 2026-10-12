@@ -62,23 +62,29 @@ export default function BillDocument() {
 
   const isReceipt = bill.payment_status === 'paid';
   const itemRows = [
-    { label: 'ค่าเช่าห้องพัก', quantity: '1 เดือน', amount: bill.rent_amount },
+    { label: 'ค่าเช่าห้องพัก', quantity: 1, unit: 'เดือน', unitPrice: bill.rent_amount, amount: bill.rent_amount },
     {
       label: 'ค่าน้ำประปา',
-      quantity: `${bill.water_unit} หน่วย`,
+      quantity: bill.water_unit,
+      unit: 'หน่วย',
+      unitPrice: bill.water_rate ?? (Number(bill.water_unit) > 0 ? Number(bill.water_amount) / Number(bill.water_unit) : null),
       detail: `มิเตอร์ ${bill.water_old_meter} → ${bill.water_new_meter}`,
       amount: bill.water_amount
     },
     {
       label: 'ค่าไฟฟ้า',
-      quantity: `${bill.electric_unit} หน่วย`,
+      quantity: bill.electric_unit,
+      unit: 'หน่วย',
+      unitPrice: bill.electric_rate ?? (Number(bill.electric_unit) > 0 ? Number(bill.electric_amount) / Number(bill.electric_unit) : null),
       detail: `มิเตอร์ ${bill.electric_old_meter} → ${bill.electric_new_meter}`,
       amount: bill.electric_amount
     },
     ...(Array.isArray(bill.extra_charges) ? bill.extra_charges : []).map((charge, index) => ({
       key: `extra-${index}`,
       label: charge.description,
-      quantity: '1 รายการ',
+      quantity: 1,
+      unit: 'รายการ',
+      unitPrice: charge.amount,
       amount: charge.amount
     }))
   ];
@@ -143,6 +149,8 @@ export default function BillDocument() {
               <tr className="border-b-2 border-gray-300 text-gray-600">
                 <th className="py-3 pr-3">รายการ</th>
                 <th className="px-3 py-3 text-center">จำนวน</th>
+                <th className="px-3 py-3 text-center">หน่วย</th>
+                <th className="px-3 py-3 text-right">ราคาต่อหน่วย (บาท)</th>
                 <th className="py-3 pl-3 text-right">จำนวนเงิน (บาท)</th>
               </tr>
             </thead>
@@ -154,6 +162,10 @@ export default function BillDocument() {
                     {item.detail && <span className="mt-1 block text-xs font-normal text-gray-500">{item.detail}</span>}
                   </td>
                   <td className="px-3 py-4 text-center text-gray-600">{item.quantity}</td>
+                  <td className="px-3 py-4 text-center text-gray-600">{item.unit}</td>
+                  <td className="px-3 py-4 text-right text-gray-600">
+                    {item.unitPrice == null ? '-' : money(item.unitPrice)}
+                  </td>
                   <td className="py-4 pl-3 text-right text-gray-800">{money(item.amount)}</td>
                 </tr>
               ))}
@@ -168,6 +180,14 @@ export default function BillDocument() {
           </div>
           <p className="mt-2 text-right text-sm text-gray-500">สถานะ: {isReceipt ? 'ชำระครบถ้วน' : 'ยังไม่ได้ชำระ'}</p>
         </section>
+
+        {!isReceipt && bill.promptpay_number && (
+          <section className="mt-6 rounded-lg border border-teal-200 bg-teal-50 p-4">
+            <h3 className="text-sm font-semibold text-teal-900">ช่องทางชำระเงิน</h3>
+            <p className="mt-1 text-sm text-gray-800">พร้อมเพย์: <span className="font-semibold">{bill.promptpay_number}</span></p>
+            <p className="mt-1 text-xs text-gray-600">โอนตามยอดบิล แล้วแนบสลิปเพื่อแจ้งชำระ</p>
+          </section>
+        )}
 
         {isReceipt && bill.notes && (
           <section className="ml-auto mt-5 max-w-sm text-sm text-gray-600">

@@ -1,10 +1,14 @@
 import { useState } from 'react';
 import { Eye, FileText, X } from 'lucide-react';
+import api from '../api/axios';
+import useToast from './useToast';
 
 const formatDate = (date) => date ? new Date(date).toLocaleDateString('th-TH') : 'วันที่สมัคร';
 
 export default function TenantDocumentsModal({ data, onClose }) {
+  const notify = useToast();
   const [preview, setPreview] = useState(null);
+  const [loadingDocumentId, setLoadingDocumentId] = useState(null);
   if (!data) return null;
 
   return (
@@ -25,7 +29,17 @@ export default function TenantDocumentsModal({ data, onClose }) {
                   <FileText size={18} className="text-teal-700" />
                   <div><p className="text-sm font-medium text-gray-800">{document.title}</p><p className="text-xs text-gray-500">{formatDate(document.submitted_at)} · {document.status}</p></div>
                 </div>
-                <button type="button" onClick={() => setPreview(document.document)} className="inline-flex items-center gap-1 rounded-lg bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-800 hover:bg-teal-100">
+                <button type="button" disabled={loadingDocumentId === document.id} onClick={async () => {
+                  setLoadingDocumentId(document.id);
+                  try {
+                    const response = await api.get(`/tenant/admin/tenants/${data.tenant.user_id}/documents/${document.id}`);
+                    setPreview(response.data.document);
+                  } catch (error) {
+                    notify(error.response?.data?.error || 'โหลดเอกสารไม่สำเร็จ', 'error');
+                  } finally {
+                    setLoadingDocumentId(null);
+                  }
+                }} className="inline-flex items-center gap-1 rounded-lg bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-800 hover:bg-teal-100 disabled:opacity-50">
                   <Eye size={15} /> เปิดดู
                 </button>
               </div>

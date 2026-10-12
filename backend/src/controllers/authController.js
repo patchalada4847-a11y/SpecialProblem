@@ -54,6 +54,9 @@ exports.register = async (req, res) => {
   if (pdpa_consent !== true) {
     return res.status(400).json({ error: 'กรุณารับทราบประกาศความเป็นส่วนตัวก่อนสมัครสมาชิก' });
   }
+  if (typeof phone !== 'string' || !/^\d{10}$/.test(phone)) {
+    return res.status(400).json({ error: 'เบอร์โทรศัพท์ต้องเป็นตัวเลข 10 หลัก' });
+  }
   const validatedProfileImage = validateProfileImage(profile_image);
   if (validatedProfileImage === undefined) {
     return res.status(400).json({ error: 'ไฟล์รูปโปรไฟล์ไม่ถูกต้อง (รองรับ JPG, PNG หรือ WebP ไม่เกิน 5MB)' });

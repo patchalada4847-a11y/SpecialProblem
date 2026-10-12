@@ -17,7 +17,7 @@ exports.getSettings = async (req, res) => {
     const [settingsResult, roomTypesResult] = await Promise.all([
       db.query(
         `SELECT water_rate, electric_rate, dormitory_name, dormitory_address,
-                contact_phone, payment_instructions
+                contact_phone, payment_instructions, promptpay_number
          FROM m_billing_settings WHERE setting_id = 1`
       ),
       db.query(
@@ -38,7 +38,8 @@ exports.updateDormitoryDetails = async (req, res) => {
     ['dormitory_name', 'ชื่อหอพัก', 150],
     ['dormitory_address', 'ที่อยู่', 500],
     ['contact_phone', 'เบอร์โทรศัพท์', 50],
-    ['payment_instructions', 'คำแนะนำการชำระเงิน', 1000]
+    ['payment_instructions', 'คำแนะนำการชำระเงิน', 1000],
+    ['promptpay_number', 'เบอร์พร้อมเพย์', 10]
   ];
   const values = fields.map(([key]) => req.body?.[key]);
   if (values.some((value, index) => (
@@ -48,15 +49,20 @@ exports.updateDormitoryDetails = async (req, res) => {
   ))) {
     return res.status(400).json({ error: 'กรุณาตรวจสอบข้อมูลหอพักและความยาวของข้อความ' });
   }
+  const promptPayNumber = req.body.promptpay_number.trim();
+  if (promptPayNumber && !/^\d{10}$/.test(promptPayNumber)) {
+    return res.status(400).json({ error: 'เบอร์พร้อมเพย์ต้องเป็นตัวเลข 10 หลัก หรือเว้นว่างเพื่อปิดการแสดงผล' });
+  }
 
   try {
     const result = await db.query(
       `UPDATE m_billing_settings
        SET dormitory_name = $1, dormitory_address = $2,
-           contact_phone = $3, payment_instructions = $4
+           contact_phone = $3, payment_instructions = $4, promptpay_number = $5
        WHERE setting_id = 1
-       RETURNING dormitory_name, dormitory_address, contact_phone, payment_instructions`,
-      values.map((value) => value.trim())
+       RETURNING dormitory_name, dormitory_address, contact_phone,
+                 payment_instructions, promptpay_number`,
+      [...values.map((value) => value.trim()).slice(0, 4), promptPayNumber]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'ไม่พบการตั้งค่าหอพัก' });

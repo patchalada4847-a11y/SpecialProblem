@@ -23,7 +23,9 @@ exports.getMyRenewals = async (req, res) => {
       ),
       db.query(
         `SELECT rr.request_id, rr.contract_id, rr.proposed_end_date::text AS proposed_end_date,
-                rr.agreement_document, rr.signed_document, rr.tenant_note, rr.status, rr.admin_note,
+                (rr.agreement_document IS NOT NULL) AS has_agreement_document,
+                (rr.signed_document IS NOT NULL) AS has_signed_document,
+                rr.tenant_note, rr.status, rr.admin_note,
                 rr.submitted_at, rr.reviewed_at, r.room_number
          FROM m_contract_renewal_requests rr
          JOIN m_contracts c ON c.contract_id = rr.contract_id
@@ -97,7 +99,9 @@ exports.getRenewalRequests = async (req, res) => {
     const where = `WHERE ($1 = '' OR rr.status = $1)`;
     const result = await db.query(
       `SELECT rr.request_id, rr.contract_id, rr.tenant_id, rr.proposed_end_date::text AS proposed_end_date,
-              rr.agreement_document, rr.signed_document, rr.tenant_note, rr.status, rr.admin_note, rr.submitted_at, rr.reviewed_at,
+              (rr.agreement_document IS NOT NULL) AS has_agreement_document,
+              (rr.signed_document IS NOT NULL) AS has_signed_document,
+              rr.tenant_note, rr.status, rr.admin_note, rr.submitted_at, rr.reviewed_at,
              u.first_name, u.last_name, u.username, u.phone, r.room_number,
              c.end_date::text AS current_end_date
        FROM m_contract_renewal_requests rr
@@ -119,6 +123,32 @@ exports.getRenewalRequests = async (req, res) => {
   } catch (error) {
     console.error('Error fetching renewal requests for admin:', error);
     res.status(500).json({ error: 'ไม่สามารถโหลดคำขอต่อสัญญาได้' });
+  }
+};
+
+exports.getRenewalDocument = async (req, res) => {
+  const requestId = Number(req.params.id);
+  const kind = req.params.kind;
+  if (!Number.isInteger(requestId) || requestId < 1 || !['agreement', 'signed'].includes(kind)) {
+    return res.status(400).json({ error: 'รหัสเอกสารไม่ถูกต้อง' });
+  }
+
+  try {
+    const column = kind === 'agreement' ? 'agreement_document' : 'signed_document';
+    const result = await db.query(
+      `SELECT rr.${column} AS document
+       FROM m_contract_renewal_requests rr
+       WHERE rr.request_id = $1
+         AND ($3 = 'admin' OR rr.tenant_id = $2)`,
+      [requestId, req.user.user_id || req.user.id, req.user.role]
+    );
+    if (!result.rows.length || !result.rows[0].document) {
+      return res.status(404).json({ error: 'ไม่พบเอกสาร หรือคุณไม่มีสิทธิ์เข้าถึง' });
+    }
+    res.json({ document: result.rows[0].document });
+  } catch (error) {
+    console.error('Error fetching renewal document:', error);
+    res.status(500).json({ error: 'ไม่สามารถโหลดเอกสารได้' });
   }
 };
 
@@ -165,21 +195,20 @@ exports.reviewRenewalRequest = async (req, res) => {
 
 exports.sendRenewalAgreement = async (req, res) => {
   const requestId = Number(req.params.id);
-  const { proposed_end_date, agreement_document, admin_note = '' } = req.body || {};
+  const { agreement_document, admin_note = '' } = req.body || {};
   const uploadedDocument = validateUploadedDocument(agreement_document);
   if (
     !Number.isInteger(requestId) || requestId < 1 ||
-    typeof proposed_end_date !== 'string' ||
-    !/^\d{4}-\d{2}-\d{2}$/.test(proposed_end_date) ||
     !uploadedDocument ||
     typeof admin_note !== 'string' || admin_note.length > 2000
   ) {
-    return res.status(400).json({ error: 'กรุณาระบุวันสิ้นสุดสัญญา แนบไฟล์สัญญา PDF/รูปไม่เกิน 10MB และตรวจสอบหมายเหตุ' });
+    return res.status(400).json({ error: 'กรุณาแนบไฟล์สัญญา PDF/รูปไม่เกิน 10MB และตรวจสอบหมายเหตุ' });
   }
   try {
     const result = await db.withTransaction(async (client) => {
       const renewal = await client.query(
-        `SELECT rr.request_id, rr.contract_id, rr.status, c.end_date::text AS current_end_date
+        `SELECT rr.request_id, rr.contract_id, rr.status,
+                (c.end_date + INTERVAL '1 year')::date::text AS proposed_end_date
          FROM m_contract_renewal_requests rr
          JOIN m_contracts c ON c.contract_id = rr.contract_id
          WHERE rr.request_id = $1 FOR UPDATE OF rr, c`,
@@ -189,14 +218,11 @@ exports.sendRenewalAgreement = async (req, res) => {
       if (renewal.rows[0].status !== 'awaiting_tenant') {
         return { error: 'ต้องอนุมัติคำขอต่อสัญญาก่อนส่งสัญญาให้ผู้เช่า', statusCode: 409 };
       }
-      if (proposed_end_date <= renewal.rows[0].current_end_date) {
-        return { error: 'วันสิ้นสุดสัญญาใหม่ต้องอยู่หลังวันสิ้นสุดปัจจุบัน', statusCode: 400 };
-      }
       await client.query(
         `UPDATE m_contract_renewal_requests
          SET proposed_end_date = $1::date, agreement_document = $2, admin_note = $3
          WHERE request_id = $4`,
-        [proposed_end_date, uploadedDocument.data, admin_note.trim(), requestId]
+        [renewal.rows[0].proposed_end_date, uploadedDocument.data, admin_note.trim(), requestId]
       );
       return { success: true };
     });

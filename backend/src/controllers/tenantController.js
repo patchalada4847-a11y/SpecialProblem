@@ -1,5 +1,8 @@
 const db = require('../config/db');
 const { parsePagination, respondWithPagination } = require('../utils/pagination');
+const { validateUploadedDocument } = require('../utils/uploadedDocument');
+const { verifySlip } = require('../services/slipVerification');
+const { notifyAdmin } = require('../services/lineNotifications');
 
 // 1. ดึงข้อมูลส่วนตัว สัญญาเช่า และห้องพัก
 exports.getMyProfileAndContract = async (req, res) => {
@@ -60,9 +63,9 @@ exports.updateTenantProfile = async (req, res) => {
     !first_name.trim() ||
     typeof last_name !== 'string' ||
     !last_name.trim() ||
-    (phone != null && typeof phone !== 'string')
+    (phone != null && (typeof phone !== 'string' || (phone.trim() && !/^\d{10}$/.test(phone.trim()))))
   ) {
-    return res.status(400).json({ error: 'กรุณาระบุชื่อและนามสกุลให้ถูกต้อง' });
+    return res.status(400).json({ error: 'กรุณาระบุชื่อ นามสกุล และเบอร์โทร 10 หลักให้ถูกต้อง' });
   }
 
   try {
@@ -89,13 +92,16 @@ exports.getTenantDocuments = async (req, res) => {
   try {
     const [tenantResult, renewalResult] = await Promise.all([
       db.query(
-        `SELECT user_id, first_name, last_name, username, kyc_document
+        `SELECT user_id, first_name, last_name, username,
+                (kyc_document IS NOT NULL) AS has_kyc_document
          FROM m_users WHERE user_id = $1 AND role = 'tenant'`,
         [tenantId]
       ),
       db.query(
         `SELECT rr.request_id, rr.contract_id, rr.proposed_end_date::text AS proposed_end_date,
-                rr.agreement_document, rr.signed_document, rr.status, rr.submitted_at, r.room_number
+                (rr.agreement_document IS NOT NULL) AS has_agreement_document,
+                (rr.signed_document IS NOT NULL) AS has_signed_document,
+                rr.status, rr.submitted_at, r.room_number
          FROM m_contract_renewal_requests rr
          JOIN m_contracts c ON c.contract_id = rr.contract_id
          JOIN m_rooms r ON r.room_id = c.room_id
@@ -108,27 +114,24 @@ exports.getTenantDocuments = async (req, res) => {
     res.json({
       tenant: tenantResult.rows[0],
       documents: [
-        ...(tenantResult.rows[0].kyc_document ? [{
+        ...(tenantResult.rows[0].has_kyc_document ? [{
           id: `application-${tenantId}`,
           title: 'เอกสารที่แนบตอนสมัคร',
           submitted_at: null,
-          status: 'application',
-          document: tenantResult.rows[0].kyc_document
+          status: 'application'
         }] : []),
         ...renewalResult.rows.flatMap((request) => [
-          ...(request.agreement_document ? [{
+          ...(request.has_agreement_document ? [{
             id: `renewal-draft-${request.request_id}`,
             title: `ร่างสัญญาต่ออายุ · ห้อง ${request.room_number}`,
             submitted_at: request.submitted_at,
-            status: request.status,
-            document: request.agreement_document
+            status: request.status
           }] : []),
-          ...(request.signed_document ? [{
+          ...(request.has_signed_document ? [{
             id: `renewal-signed-${request.request_id}`,
             title: `สัญญาที่ผู้เช่าลงนามแล้ว · ห้อง ${request.room_number}`,
             submitted_at: request.submitted_at,
-            status: request.status,
-            document: request.signed_document
+            status: request.status
           }] : [])
         ])
       ]
@@ -136,6 +139,43 @@ exports.getTenantDocuments = async (req, res) => {
   } catch (error) {
     console.error('Error fetching tenant documents:', error);
     res.status(500).json({ error: 'ไม่สามารถโหลดเอกสารผู้เช่าได้' });
+  }
+};
+
+exports.getTenantDocument = async (req, res) => {
+  const tenantId = Number(req.params.id);
+  const documentId = String(req.params.document_id || '');
+  if (!Number.isInteger(tenantId) || tenantId < 1) {
+    return res.status(400).json({ error: 'หมายเลขผู้เช่าไม่ถูกต้อง' });
+  }
+
+  try {
+    let result;
+    if (documentId === `application-${tenantId}`) {
+      result = await db.query(
+        `SELECT kyc_document AS document FROM m_users
+         WHERE user_id = $1 AND role = 'tenant'`,
+        [tenantId]
+      );
+    } else {
+      const match = documentId.match(/^renewal-(draft|signed)-(\d+)$/);
+      if (!match) return res.status(400).json({ error: 'รหัสเอกสารไม่ถูกต้อง' });
+      const column = match[1] === 'draft' ? 'agreement_document' : 'signed_document';
+      result = await db.query(
+        `SELECT rr.${column} AS document
+         FROM m_contract_renewal_requests rr
+         WHERE rr.request_id = $1 AND rr.tenant_id = $2`,
+        [Number(match[2]), tenantId]
+      );
+    }
+
+    if (!result.rows.length || !result.rows[0].document) {
+      return res.status(404).json({ error: 'ไม่พบเอกสารที่ระบุ' });
+    }
+    res.json({ document: result.rows[0].document });
+  } catch (error) {
+    console.error('Error fetching tenant document:', error);
+    res.status(500).json({ error: 'ไม่สามารถโหลดเอกสารได้' });
   }
 };
 
@@ -165,10 +205,15 @@ exports.getMyBills = async (req, res) => {
         b.extra_charges,
         b.payment_status,
         b.due_date,
-        b.slip_image,
-        b.created_at
+        (b.slip_image IS NOT NULL) AS has_slip,
+        b.slip_verification_status,
+        b.slip_verification_message,
+        b.slip_verified_at,
+        b.created_at,
+        settings.promptpay_number
       FROM t_bills b
       INNER JOIN m_contracts c ON b.contract_id = c.contract_id
+      LEFT JOIN m_billing_settings settings ON settings.setting_id = 1
       WHERE c.tenant_id = $1
       ORDER BY b.year DESC, b.month DESC
       ${pagination ? 'LIMIT $2 OFFSET $3' : ''}
@@ -201,6 +246,9 @@ exports.updateMyProfile = async (req, res) => {
     const userId = req.user?.user_id || req.user?.id;
     const body = req.body || {};
     const { first_name = '', last_name = '', phone = '' } = body;
+    if (typeof phone !== 'string' || (phone && !/^\d{10}$/.test(phone))) {
+      return res.status(400).json({ error: 'เบอร์โทรศัพท์ต้องเป็นตัวเลข 10 หลัก' });
+    }
 
     await db.query(
       'UPDATE m_users SET first_name = $1, last_name = $2, phone = $3 WHERE user_id = $4',
@@ -253,36 +301,124 @@ exports.getAvailableTenants = async (req, res) => {
 exports.uploadSlip = async (req, res) => {
   try {
     const userId = req.user?.user_id || req.user?.id;
-    const { bill_id, slip_image } = req.body;
+    const billId = Number(req.body?.bill_id);
+    const uploadedDocument = validateUploadedDocument(req.body?.slip_image);
 
-    if (!bill_id || !slip_image) {
-      return res.status(400).json({ error: 'ข้อมูลไม่ครบถ้วน (ต้องระบุ bill_id และ slip_image)' });
+    if (!Number.isInteger(billId) || billId < 1 || !uploadedDocument ||
+        !uploadedDocument.mimeType.startsWith('image/')) {
+      return res.status(400).json({ error: 'กรุณาระบุรหัสบิลและแนบไฟล์รูปสลิป JPEG, PNG หรือ WebP ที่ถูกต้อง (ไม่เกิน 10MB)' });
     }
 
-    // ตรวจสอบว่าบิลนี้เป็นของสัญญาผู้เช่าคนนี้จริงไหม
-    const checkQuery = `
-      SELECT b.bill_id, b.payment_status 
-      FROM t_bills b
-      INNER JOIN m_contracts c ON b.contract_id = c.contract_id
-      WHERE b.bill_id = $1 AND c.tenant_id = $2
-    `;
-    const checkResult = await db.query(checkQuery, [bill_id, userId]);
-
-    if (checkResult.rows.length === 0) {
+    const billForVerification = await db.query(
+      `SELECT b.bill_id, b.month, b.year, b.total_amount, b.payment_status
+       FROM t_bills b
+       JOIN m_contracts c ON c.contract_id = b.contract_id
+       WHERE b.bill_id = $1 AND c.tenant_id = $2`,
+      [billId, userId]
+    );
+    if (!billForVerification.rows.length) {
       return res.status(403).json({ error: 'คุณไม่มีสิทธิ์อัปโหลดสลิปสำหรับบิลนี้' });
     }
-
-    if (checkResult.rows[0].payment_status === 'paid') {
+    if (billForVerification.rows[0].payment_status !== 'pending') {
       return res.status(400).json({ error: 'บิลนี้ได้รับการชำระเงินเรียบร้อยแล้ว' });
     }
 
-    // อัปเดตรูปสลิป
-    await db.query('UPDATE t_bills SET slip_image = $1 WHERE bill_id = $2', [slip_image, bill_id]);
+    const bill = billForVerification.rows[0];
+    const verification = await verifySlip({
+      mode: process.env.SLIPOK_MODE || 'manual',
+      mockResult: process.env.SLIPOK_MOCK_RESULT,
+      isProduction: process.env.NODE_ENV === 'production',
+      image: uploadedDocument.data,
+      mimeType: uploadedDocument.mimeType,
+      amount: bill.total_amount
+    });
+    const outcome = await db.withTransaction(async (client) => {
+      const billResult = await client.query(
+        `SELECT b.bill_id, b.month, b.year, b.total_amount, b.payment_status
+         FROM t_bills b
+         JOIN m_contracts c ON c.contract_id = b.contract_id
+         WHERE b.bill_id = $1 AND c.tenant_id = $2
+         FOR UPDATE OF b`,
+        [billId, userId]
+      );
+      if (!billResult.rows.length) return { forbidden: true };
 
-    res.json({ message: 'แนบสลิปโอนเงินเรียบร้อยแล้ว รอผู้ดูแลระบบตรวจสอบ' });
+      const bill = billResult.rows[0];
+      if (bill.payment_status !== 'pending') return { alreadyPaid: true };
+
+      await client.query(
+        `UPDATE t_bills
+         SET slip_image = $1,
+             slip_verification_status = $2,
+             slip_verification_message = $3,
+             slip_trans_ref = $4,
+             slip_verified_at = CASE WHEN $5 THEN CURRENT_TIMESTAMP ELSE NULL END
+         WHERE bill_id = $6`,
+        [
+          uploadedDocument.data,
+          verification.status,
+          verification.message,
+          verification.slipData?.transRef || null,
+          verification.status === 'verified' && !verification.simulated,
+          billId
+        ]
+      );
+
+      if (verification.status === 'verified') {
+        const updated = await client.query(
+          `UPDATE t_bills SET payment_status = 'paid'
+           WHERE bill_id = $1 AND payment_status = 'pending'`,
+          [billId]
+        );
+        if (updated.rowCount !== 1) return { alreadyPaid: true };
+
+        await client.query(
+          `INSERT INTO t_transactions
+             (type, category, amount, description, transaction_date,
+              payment_method, payment_reference, notes, bill_id)
+           VALUES ('income', 'Rent Payment', $1, $2, CURRENT_DATE,
+                   'bank_transfer', $3, $4, $5)`,
+          [
+            bill.total_amount,
+            `ชำระบิลประจำเดือน ${bill.month}/${bill.year} (Bill ID: ${bill.bill_id})`,
+            verification.simulated ? `DEMO-SLIPOK-${bill.bill_id}` : verification.slipData?.transRef || null,
+            verification.simulated ? 'DEMO SIMULATION: ไม่ใช่ผลตรวจจาก SlipOK จริง' : null,
+            bill.bill_id
+          ]
+        );
+      }
+      return { bill };
+    });
+
+    if (outcome.forbidden) {
+      return res.status(403).json({ error: 'คุณไม่มีสิทธิ์อัปโหลดสลิปสำหรับบิลนี้' });
+    }
+    if (outcome.alreadyPaid) {
+      return res.status(400).json({ error: 'บิลนี้ได้รับการชำระเงินเรียบร้อยแล้ว' });
+    }
+
+    const message = `มีการส่งสลิปบิล #${billId}: ${verification.message}`;
+    let notificationWarning;
+    try {
+      await notifyAdmin(message);
+    } catch (notificationError) {
+      notificationWarning = 'บันทึกผลตรวจแล้ว แต่ส่ง LINE ไม่สำเร็จ';
+      console.error('[LINE notification failed]', notificationError);
+    }
+
+    res.json({
+      message: verification.message,
+      verification_status: verification.status,
+      simulated: Boolean(verification.simulated),
+      slip_reference: verification.slipData?.transRef || null,
+      notification_warning: notificationWarning
+    });
   } catch (error) {
     console.error('Error in uploadSlip:', error);
-    res.status(500).json({ error: error.message });
+    if (error.code === '23505') {
+      return res.status(409).json({ error: 'สลิปนี้เคยใช้ชำระบิลอื่นแล้ว' });
+    }
+    res.status(error.statusCode || 500).json({ error: error.message || 'ไม่สามารถตรวจสอบสลิปได้' });
   }
 };
 
@@ -294,7 +430,8 @@ exports.getPendingKYC = async (req, res) => {
       ? await db.query(`SELECT COUNT(*) AS total FROM m_users WHERE role = 'tenant' AND status = 'pending'`)
       : null;
     const result = await db.query(
-      `SELECT user_id, username, first_name, last_name, phone, status, kyc_document, created_at 
+      `SELECT user_id, username, first_name, last_name, phone, status,
+              (kyc_document IS NOT NULL) AS has_kyc_document, created_at
        FROM m_users 
        WHERE role = 'tenant' AND status = 'pending'
        ORDER BY created_at DESC
@@ -304,6 +441,27 @@ exports.getPendingKYC = async (req, res) => {
     respondWithPagination(req, res, result.rows, count?.rows[0].total, pagination);
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+};
+
+exports.getPendingKYCDocument = async (req, res) => {
+  const userId = Number(req.params.id);
+  if (!Number.isInteger(userId) || userId < 1) {
+    return res.status(400).json({ error: 'หมายเลขผู้สมัครไม่ถูกต้อง' });
+  }
+  try {
+    const result = await db.query(
+      `SELECT kyc_document FROM m_users
+       WHERE user_id = $1 AND role = 'tenant' AND status = 'pending'`,
+      [userId]
+    );
+    if (!result.rows.length || !result.rows[0].kyc_document) {
+      return res.status(404).json({ error: 'ไม่พบเอกสารที่รอตรวจสอบ' });
+    }
+    res.json({ document: result.rows[0].kyc_document });
+  } catch (error) {
+    console.error('Error fetching pending KYC document:', error);
+    res.status(500).json({ error: 'ไม่สามารถโหลดเอกสารได้' });
   }
 };
 

@@ -5,14 +5,11 @@ import useToast from '../components/useToast';
 import Pagination from '../components/Pagination';
 
 const formatDate = (date) => date ? new Date(`${String(date).slice(0, 10)}T00:00:00`).toLocaleDateString('th-TH') : '-';
-const dayAfter = (date) => {
-  const value = new Date(`${String(date).slice(0, 10)}T00:00:00`);
-  value.setDate(value.getDate() + 1);
-  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
-};
 const oneYearLater = (date) => {
   const value = new Date(`${String(date).slice(0, 10)}T00:00:00`);
+  const month = value.getMonth();
   value.setFullYear(value.getFullYear() + 1);
+  if (value.getMonth() !== month) value.setDate(0);
   return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
 };
 
@@ -80,6 +77,7 @@ export default function TenantServices() {
   const [renewalForm, setRenewalForm] = useState({ tenant_note: '' });
   const [ticketForm, setTicketForm] = useState({ category: 'ซ่อมบำรุง', subject: '', description: '', priority: 'normal' });
   const [preview, setPreview] = useState(null);
+  const [loadingDocument, setLoadingDocument] = useState(false);
   const [reviewRenewal, setReviewRenewal] = useState(null);
   const [reviewNote, setReviewNote] = useState('');
   const [sendAgreementRequest, setSendAgreementRequest] = useState(null);
@@ -172,6 +170,32 @@ export default function TenantServices() {
     } catch (error) {
       notify(error.response?.data?.error || 'ยืนยันการต่อสัญญาไม่สำเร็จ', 'error');
     }
+  };
+
+  const openRenewalDocument = async (requestId, kind) => {
+    setLoadingDocument(true);
+    try {
+      const prefix = isAdmin ? '/renewals' : '/tenant/renewals';
+      const response = await api.get(`${prefix}/${requestId}/document/${kind}`);
+      setPreview(response.data.document);
+      return response.data.document;
+    } catch (error) {
+      notify(error.response?.data?.error || 'โหลดเอกสารไม่สำเร็จ', 'error');
+      return null;
+    } finally {
+      setLoadingDocument(false);
+    }
+  };
+
+  const downloadRenewalAgreement = async (requestId) => {
+    const document = await openRenewalDocument(requestId, 'agreement');
+    if (!document) return;
+    const extension = document.slice(5).split(';')[0].split('/')[1];
+    const link = window.document.createElement('a');
+    link.href = document;
+    link.download = `renewal-${requestId}.${extension}`;
+    link.click();
+    setPreview(null);
   };
 
   const handleTicketSubmit = async (event) => {
@@ -294,10 +318,10 @@ export default function TenantServices() {
                     <td className="p-3">{formatDate(request.submitted_at)}</td>
                     <td className="max-w-52 p-3">{request.tenant_note || '-'}</td>
                     <td className="p-3">
-                      {request.signed_document ? (
-                        <button type="button" onClick={() => setPreview(request.signed_document)} className="inline-flex items-center gap-1 text-teal-700 hover:underline"><FileText size={15} /> ดูฉบับที่เซ็นแล้ว</button>
-                      ) : request.agreement_document ? (
-                        <button type="button" onClick={() => setPreview(request.agreement_document)} className="inline-flex items-center gap-1 text-teal-700 hover:underline"><FileText size={15} /> ดูร่างสัญญา</button>
+                      {request.has_signed_document ? (
+                        <button type="button" disabled={loadingDocument} onClick={() => openRenewalDocument(request.request_id, 'signed')} className="inline-flex items-center gap-1 text-teal-700 hover:underline disabled:opacity-50"><FileText size={15} /> ดูฉบับที่เซ็นแล้ว</button>
+                      ) : request.has_agreement_document ? (
+                        <button type="button" disabled={loadingDocument} onClick={() => openRenewalDocument(request.request_id, 'agreement')} className="inline-flex items-center gap-1 text-teal-700 hover:underline disabled:opacity-50"><FileText size={15} /> ดูร่างสัญญา</button>
                       ) : '-'}
                     </td>
                     <td className="p-3">
@@ -310,13 +334,13 @@ export default function TenantServices() {
                             setSendAgreementRequest(request);
                             setAgreementForm({
                               proposed_end_date: request.proposed_end_date || oneYearLater(request.current_end_date),
-                              admin_note: request.agreement_document ? request.admin_note : ''
+                              admin_note: request.has_agreement_document ? request.admin_note : ''
                             });
                             setFile(null);
                           }}
                           className="rounded-lg bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 hover:bg-indigo-100"
                         >
-                          {request.agreement_document ? 'ส่งสัญญาใหม่' : 'ส่งสัญญาให้ผู้เช่า'}
+                          {request.has_agreement_document ? 'ส่งสัญญาใหม่' : 'ส่งสัญญาให้ผู้เช่า'}
                         </button>
                       ) : request.status === 'awaiting_admin' ? (
                         <button type="button" onClick={() => setReviewSignedRequest(request)} className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 hover:bg-amber-100">ตรวจฉบับที่เซ็นแล้ว</button>
@@ -377,7 +401,8 @@ export default function TenantServices() {
               </div>
               <p className="text-sm text-gray-600">ผู้เช่า: {sendAgreementRequest.first_name} {sendAgreementRequest.last_name}</p>
               <label className="block text-sm">วันสิ้นสุดสัญญาใหม่
-                <input required type="date" min={dayAfter(sendAgreementRequest.current_end_date)} value={agreementForm.proposed_end_date} onChange={(event) => setAgreementForm({ ...agreementForm, proposed_end_date: event.target.value })} className="mt-1 w-full rounded-lg border p-2" />
+                <input required type="date" readOnly value={oneYearLater(sendAgreementRequest.current_end_date)} className="mt-1 w-full rounded-lg border bg-gray-100 p-2" />
+                <span className="mt-1 block text-xs text-gray-500">ต่ออายุอัตโนมัติ 1 ปีจากวันสิ้นสุดสัญญาปัจจุบัน</span>
               </label>
               <label className="block text-sm">ไฟล์สัญญาที่จัดทำแล้ว
                 <input type="file" accept="application/pdf,image/jpeg,image/png,image/webp" onChange={handleDocumentFile} className="mt-1 w-full rounded-lg border p-2 text-xs" />
@@ -401,7 +426,7 @@ export default function TenantServices() {
                 </div>
                 <button type="button" onClick={() => setReviewSignedRequest(null)} aria-label="ปิด"><X size={18} /></button>
               </div>
-              <button type="button" onClick={() => setPreview(reviewSignedRequest.signed_document)} className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm text-teal-800 hover:bg-teal-50">
+              <button type="button" disabled={loadingDocument} onClick={() => openRenewalDocument(reviewSignedRequest.request_id, 'signed')} className="inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm text-teal-800 hover:bg-teal-50 disabled:opacity-50">
                 <FileText size={16} /> เปิดเอกสารฉบับที่ผู้เช่าเซ็นแล้ว
               </button>
               <div className="flex justify-end gap-2 border-t pt-3">
@@ -448,7 +473,7 @@ export default function TenantServices() {
                 <Clock3 size={16} />
                 {renewals.some((request) => request.status === 'awaiting_admin')
                   ? 'ส่งสัญญาที่เซ็นแล้ว รอผู้ดูแลตรวจสอบ'
-                  : renewals.some((request) => request.status === 'awaiting_tenant' && request.agreement_document)
+                  : renewals.some((request) => request.status === 'awaiting_tenant' && request.has_agreement_document)
                     ? 'ผู้ดูแลส่งร่างสัญญาแล้ว กรุณาดาวน์โหลด เซ็น และอัปโหลดกลับ'
                     : renewals.some((request) => request.status === 'awaiting_tenant')
                       ? 'คำขอได้รับอนุมัติแล้ว รอผู้ดูแลส่งร่างสัญญา'
@@ -466,23 +491,19 @@ export default function TenantServices() {
               <span className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium ${request.status === 'approved' ? 'bg-emerald-50 text-emerald-700' : request.status === 'rejected' ? 'bg-rose-50 text-rose-700' : 'bg-amber-50 text-amber-800'}`}>
                 {request.status === 'approved' ? <Check size={13} /> : <Clock3 size={13} />}
                 {request.status === 'awaiting_tenant'
-                  ? (request.agreement_document ? 'รอผู้เช่าเซ็น' : 'อนุมัติแล้ว · รอส่งร่างสัญญา')
+                  ? (request.has_agreement_document ? 'รอผู้เช่าเซ็น' : 'อนุมัติแล้ว · รอส่งร่างสัญญา')
                   : statusLabels[request.status]}
               </span>
               {request.admin_note && <p className="w-full text-xs text-gray-500">ข้อความจากผู้ดูแล: {request.admin_note}</p>}
-              {request.status === 'awaiting_tenant' && request.agreement_document && (
+              {request.status === 'awaiting_tenant' && request.has_agreement_document && (
                 <div className="flex w-full flex-wrap items-center gap-2 border-t pt-3">
                   <div className="flex items-center gap-2">
-                    <button type="button" onClick={() => setPreview(request.agreement_document)} className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-xs font-medium text-teal-800 hover:bg-teal-50">
+                    <button type="button" disabled={loadingDocument} onClick={() => openRenewalDocument(request.request_id, 'agreement')} className="inline-flex items-center gap-1 rounded-lg border px-3 py-2 text-xs font-medium text-teal-800 hover:bg-teal-50 disabled:opacity-50">
                       <FileText size={14} /> ดูร่างสัญญา
                     </button>
-                    <a
-                      href={request.agreement_document}
-                      download={`renewal-${request.request_id}.${request.agreement_document.slice(5).split(';')[0].split('/')[1]}`}
-                      className="rounded-lg border px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
-                    >
+                    <button type="button" disabled={loadingDocument} onClick={() => downloadRenewalAgreement(request.request_id)} className="rounded-lg border px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50">
                       ดาวน์โหลด
-                    </a>
+                    </button>
                   </div>
                   <form onSubmit={(event) => submitSignedAgreement(event, request.request_id)} className="flex flex-wrap items-center gap-2">
                     <label className="cursor-pointer rounded-lg border px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-50">

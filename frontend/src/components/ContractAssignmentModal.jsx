@@ -9,9 +9,12 @@ const today = () => {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
 
-const defaultEndDate = () => {
-  const date = new Date();
+const endDateForStart = (startDate) => {
+  if (!startDate) return '';
+  const date = new Date(`${startDate}T00:00:00`);
+  const month = date.getMonth();
   date.setFullYear(date.getFullYear() + 1);
+  if (date.getMonth() !== month) date.setDate(0);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 };
 
@@ -35,7 +38,7 @@ export default function ContractAssignmentModal({ initialTenant = null, initialR
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     start_date: today(),
-    end_date: defaultEndDate(),
+    end_date: endDateForStart(today()),
     deposit: '0'
   });
   const fetchTenants = useCallback(async () => {
@@ -87,18 +90,13 @@ export default function ContractAssignmentModal({ initialTenant = null, initialR
       notify('กรุณาเลือกผู้เช่าและห้องพัก', 'error');
       return;
     }
-    if (form.start_date > form.end_date) {
-      notify('วันเริ่มสัญญาต้องไม่อยู่หลังวันสิ้นสุดสัญญา', 'error');
-      return;
-    }
-
     setSaving(true);
     try {
       await api.post('/contracts', {
         tenant_id: selectedTenant.user_id,
         room_id: selectedRoom.room_id,
         start_date: form.start_date,
-        end_date: form.end_date,
+        end_date: endDateForStart(form.start_date),
         deposit: Number(form.deposit)
       });
       notify(`จัดสรรห้อง ${selectedRoom.room_number} ให้ ${selectedTenant.first_name} ${selectedTenant.last_name} แล้ว`, 'success');
@@ -230,10 +228,11 @@ export default function ContractAssignmentModal({ initialTenant = null, initialR
 
         <div className="grid gap-3 border-t pt-4 sm:grid-cols-3">
           <label className="text-sm text-gray-700">วันเริ่มสัญญา
-            <input type="date" required value={form.start_date} onChange={(event) => setForm({ ...form, start_date: event.target.value })} className="mt-1 w-full rounded-lg border p-2.5" />
+            <input type="date" required value={form.start_date} onChange={(event) => setForm({ ...form, start_date: event.target.value, end_date: endDateForStart(event.target.value) })} className="mt-1 w-full rounded-lg border p-2.5" />
           </label>
           <label className="text-sm text-gray-700">วันสิ้นสุดสัญญา
-            <input type="date" required min={form.start_date} value={form.end_date} onChange={(event) => setForm({ ...form, end_date: event.target.value })} className="mt-1 w-full rounded-lg border p-2.5" />
+            <input type="date" readOnly value={form.end_date} className="mt-1 w-full rounded-lg border bg-gray-100 p-2.5" />
+            <span className="mt-1 block text-xs text-gray-500">กำหนดอัตโนมัติ 1 ปีจากวันเริ่มสัญญา</span>
           </label>
           <label className="text-sm text-gray-700">เงินประกัน
             <input type="number" min="0" step="0.01" required value={form.deposit} onChange={(event) => setForm({ ...form, deposit: event.target.value })} className="mt-1 w-full rounded-lg border p-2.5" />

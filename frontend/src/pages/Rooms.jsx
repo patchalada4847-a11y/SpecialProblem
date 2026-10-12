@@ -1,6 +1,6 @@
 import { useCallback, useState, useEffect } from 'react';
-import { Plus, Home, X, Trash2, Eye, User, Phone, Calendar, ShieldCheck, Search, Edit2, UserPlus } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Plus, Home, X, Trash2, Eye, User, Phone, Calendar, ShieldCheck, Search, Edit2, UserPlus, ReceiptText } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
 import api from '../api/axios';
 import useToast from '../components/useToast';
 import Pagination from '../components/Pagination';
@@ -8,6 +8,7 @@ import ContractAssignmentModal from '../components/ContractAssignmentModal';
 
 export default function Rooms() {
   const notify = useToast();
+  const navigate = useNavigate();
   const [rooms, setRooms] = useState([]);
   const [roomTypes, setRoomTypes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -16,6 +17,7 @@ export default function Rooms() {
   const [assignmentRoom, setAssignmentRoom] = useState(null);
   const [editingRoom, setEditingRoom] = useState(null);
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [totalRooms, setTotalRooms] = useState(0);
@@ -32,7 +34,7 @@ export default function Rooms() {
 
   const fetchRooms = useCallback(async () => {
     try {
-      const roomsRes = await api.get('/rooms', { params: { page, page_size: pageSize, search } });
+      const roomsRes = await api.get('/rooms', { params: { page, page_size: pageSize, search, status: statusFilter } });
       setRooms(roomsRes.data.items);
       setTotalRooms(roomsRes.data.pagination.total);
     } catch (err) {
@@ -40,7 +42,7 @@ export default function Rooms() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, search]);
+  }, [page, pageSize, search, statusFilter]);
 
   useEffect(() => {
     Promise.resolve().then(fetchRooms);
@@ -122,6 +124,19 @@ export default function Rooms() {
             className="w-full border p-2.5 pl-9 rounded-lg text-sm"
           />
         </div>
+        <label className="block max-w-xs text-xs font-medium text-gray-600">
+          สถานะห้อง
+          <select
+            value={statusFilter}
+            onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }}
+            className="mt-1 w-full rounded-lg border bg-white p-2.5 text-sm text-gray-800"
+          >
+            <option value="">ทุกสถานะ</option>
+            <option value="vacant">ว่าง</option>
+            <option value="occupied">มีผู้เช่า</option>
+            <option value="maintenance">ปิดปรับปรุง</option>
+          </select>
+        </label>
         {loading ? (
           <p className="text-center py-4 text-gray-500">กำลังโหลดข้อมูล...</p>
         ) : (
@@ -148,9 +163,9 @@ export default function Rooms() {
                   <td className="p-3">฿{Number(room.base_price).toLocaleString()}</td>
                   <td className="p-3">
                     <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${
-                      room.status === 'vacant' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
+                      room.status === 'vacant' ? 'bg-emerald-100 text-emerald-700' : room.status === 'maintenance' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'
                     }`}>
-                      {room.status === 'vacant' ? 'ว่าง' : 'มีผู้เช่า'}
+                      {room.status === 'vacant' ? 'ว่าง' : room.status === 'maintenance' ? 'ปิดปรับปรุง' : 'มีผู้เช่า'}
                     </span>
                   </td>
                   <td className="p-3">
@@ -304,9 +319,9 @@ export default function Rooms() {
               <div className="flex justify-between items-center">
                 <span className="text-gray-500">สถานะห้อง:</span>
                 <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                  selectedRoom.status === 'vacant' ? 'bg-emerald-100 text-emerald-700' : 'bg-blue-100 text-blue-700'
+                selectedRoom.status === 'vacant' ? 'bg-emerald-100 text-emerald-700' : selectedRoom.status === 'maintenance' ? 'bg-amber-100 text-amber-700' : 'bg-blue-100 text-blue-700'
                 }`}>
-                  {selectedRoom.status === 'vacant' ? 'ห้องว่าง' : 'มีผู้เช่าพักอาศัย'}
+                {selectedRoom.status === 'vacant' ? 'ห้องว่าง' : selectedRoom.status === 'maintenance' ? 'ปิดปรับปรุง' : 'มีผู้เช่าพักอาศัย'}
                 </span>
               </div>
             </div>
@@ -342,12 +357,23 @@ export default function Rooms() {
 
             </div>
 
-            <button
-              onClick={() => setSelectedRoom(null)}
-              className="w-full bg-gray-100 hover:bg-gray-200 text-gray-700 py-2 rounded-lg text-sm font-medium transition cursor-pointer"
-            >
-              ปิดหน้าต่าง
-            </button>
+            <div className="flex gap-2">
+              {selectedRoom.contract_id && (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/bills?contract_id=${selectedRoom.contract_id}`)}
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-teal-700 py-2 text-sm font-semibold text-white hover:bg-teal-800"
+                >
+                  <ReceiptText size={16} /> ออกบิลห้องนี้
+                </button>
+              )}
+              <button
+                onClick={() => setSelectedRoom(null)}
+                className="flex-1 rounded-lg bg-gray-100 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-200"
+              >
+                ปิดหน้าต่าง
+              </button>
+            </div>
           </div>
         </div>
       )}
