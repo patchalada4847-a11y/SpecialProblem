@@ -310,9 +310,13 @@ exports.uploadSlip = async (req, res) => {
     }
 
     const billForVerification = await db.query(
-      `SELECT b.bill_id, b.month, b.year, b.total_amount, b.payment_status
+      `SELECT b.bill_id, b.month, b.year, b.total_amount, b.payment_status,
+              r.room_number,
+              u.first_name, u.last_name
        FROM t_bills b
        JOIN m_contracts c ON c.contract_id = b.contract_id
+       LEFT JOIN m_rooms r ON r.room_id = c.room_id
+       LEFT JOIN m_users u ON u.user_id = c.tenant_id
        WHERE b.bill_id = $1 AND c.tenant_id = $2`,
       [billId, userId]
     );
@@ -334,17 +338,21 @@ exports.uploadSlip = async (req, res) => {
     });
     const outcome = await db.withTransaction(async (client) => {
       const billResult = await client.query(
-        `SELECT b.bill_id, b.month, b.year, b.total_amount, b.payment_status
+        `SELECT b.bill_id, b.month, b.year, b.total_amount, b.payment_status,
+                r.room_number,
+                u.first_name, u.last_name
          FROM t_bills b
          JOIN m_contracts c ON c.contract_id = b.contract_id
+         LEFT JOIN m_rooms r ON r.room_id = c.room_id
+         LEFT JOIN m_users u ON u.user_id = c.tenant_id
          WHERE b.bill_id = $1 AND c.tenant_id = $2
          FOR UPDATE OF b`,
         [billId, userId]
       );
       if (!billResult.rows.length) return { forbidden: true };
 
-      const bill = billResult.rows[0];
-      if (bill.payment_status !== 'pending') return { alreadyPaid: true };
+      const currentBill = billResult.rows[0];
+      if (currentBill.payment_status !== 'pending') return { alreadyPaid: true };
 
       await client.query(
         `UPDATE t_bills
@@ -379,15 +387,15 @@ exports.uploadSlip = async (req, res) => {
            VALUES ('income', 'Rent Payment', $1, $2, CURRENT_DATE,
                    'bank_transfer', $3, $4, $5)`,
           [
-            bill.total_amount,
-            `ชำระบิลประจำเดือน ${bill.month}/${bill.year} (Bill ID: ${bill.bill_id})`,
-            verification.simulated ? `DEMO-SLIPOK-${bill.bill_id}` : verification.slipData?.transRef || null,
+            currentBill.total_amount,
+            `ชำระบิลประจำเดือน ${currentBill.month}/${currentBill.year} (Bill ID: ${currentBill.bill_id})`,
+            verification.simulated ? `DEMO-SLIPOK-${currentBill.bill_id}` : verification.slipData?.transRef || null,
             verification.simulated ? 'DEMO SIMULATION: ไม่ใช่ผลตรวจจาก SlipOK จริง' : null,
-            bill.bill_id
+            currentBill.bill_id
           ]
         );
       }
-      return { bill };
+      return { bill: currentBill };
     });
 
     if (outcome.forbidden) {
@@ -397,7 +405,35 @@ exports.uploadSlip = async (req, res) => {
       return res.status(400).json({ error: 'บิลนี้ได้รับการชำระเงินเรียบร้อยแล้ว' });
     }
 
-    const message = `มีการส่งสลิปบิล #${billId}: ${verification.message}`;
+    const formattedAmount = Number(bill.total_amount).toLocaleString('th-TH', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    });
+    const tenantName = [bill.first_name, bill.last_name].filter(Boolean).join(' ') || 'ผู้เช่า';
+    const statusText = verification.status === 'verified'
+      ? '✅ ตรวจสอบสลิปผ่าน (ชำระแล้ว)'
+      : verification.status === 'manual_review'
+        ? '⏳ รอแอดมินตรวจสอบ'
+        : verification.status === 'duplicate'
+          ? '⚠️ ตรวจพบสลิปซ้ำ'
+          : '❌ ตรวจสลิปไม่ผ่าน';
+
+    const messageLines = [
+      '🔔 แจ้งเตือนการชำระเงิน',
+      `🏠 ห้อง: ${bill.room_number || '-'}`,
+      `👤 ผู้โอน: ${tenantName}`,
+      `💰 ยอดเงิน: ${formattedAmount} บาท`,
+      `📅 ประจำรอบ: ${bill.month}/${bill.year} (บิล #${billId})`,
+      `📊 สถานะ: ${statusText}`
+    ];
+    if (verification.slipData?.transRef) {
+      messageLines.push(`🔖 เลขอ้างอิง: ${verification.slipData.transRef}`);
+    }
+    if (verification.message) {
+      messageLines.push(`💬 ผลตรวจ: ${verification.message}`);
+    }
+    const message = messageLines.join('\n');
+
     let notificationWarning;
     try {
       await notifyAdmin(message);
