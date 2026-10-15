@@ -14,7 +14,7 @@ exports.getMyTickets = async (req, res) => {
        FROM t_maintenance_tickets t
        LEFT JOIN m_contracts c ON c.contract_id = t.contract_id
        LEFT JOIN m_rooms r ON r.room_id = c.room_id
-       WHERE t.tenant_id = $1
+       WHERE t.tenant_id = $1::bigint
        ORDER BY t.created_at DESC`,
       [userId]
     );
@@ -41,8 +41,8 @@ exports.createTicket = async (req, res) => {
     const result = await db.query(
       `INSERT INTO t_maintenance_tickets (tenant_id, contract_id, category, subject, description, priority)
        VALUES (
-         $1,
-         (SELECT contract_id FROM m_contracts WHERE tenant_id = $1 AND status = 'active' ORDER BY contract_id DESC LIMIT 1),
+         $1::bigint,
+         (SELECT contract_id FROM m_contracts WHERE tenant_id = $1::bigint AND status = 'active' ORDER BY contract_id DESC LIMIT 1),
          $2, $3, $4, $5
        )
        RETURNING ticket_id, category, subject, description, priority, status, created_at`,
@@ -53,7 +53,7 @@ exports.createTicket = async (req, res) => {
     db.query(
       `SELECT r.room_number FROM m_contracts c
        JOIN m_rooms r ON r.room_id = c.room_id
-       WHERE c.tenant_id = $1 AND c.status = 'active'
+       WHERE c.tenant_id = $1::bigint AND c.status = 'active'
        LIMIT 1`,
       [userId]
     ).then((roomRes) => {
@@ -84,7 +84,7 @@ exports.closeMyTicket = async (req, res) => {
     const result = await db.query(
       `UPDATE t_maintenance_tickets
        SET status = 'closed', closed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-       WHERE ticket_id = $1 AND tenant_id = $2 AND status IN ('open', 'resolved')
+       WHERE ticket_id = $1 AND tenant_id = $2::bigint AND status IN ('open', 'resolved')
        RETURNING ticket_id, status, closed_at`,
       [ticketId, userId]
     );
