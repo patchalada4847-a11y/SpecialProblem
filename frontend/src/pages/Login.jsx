@@ -35,6 +35,7 @@ export default function Login() {
       if (res.data.user?.role) {
         localStorage.setItem('role', res.data.user.role);
       }
+      window.dispatchEvent(new Event('auth-changed'));
 
       // ตรวจสอบ Role เพื่อแยก Route นำทาง
       const userRole = res.data.user?.role;

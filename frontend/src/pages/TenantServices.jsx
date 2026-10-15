@@ -125,6 +125,22 @@ export default function TenantServices() {
     else Promise.resolve().then(fetchTenantData);
   }, [isAdmin, fetchAdminData, fetchTenantData]);
 
+  // รับ Event แจ้งเตือนแบบ Real-time และการคลิกจากการแจ้งเตือนเพื่อรีเฟรชเคสและคำขอต่อสัญญาทันที
+  useEffect(() => {
+    const handleRealtimeUpdate = () => {
+      if (isAdmin) fetchAdminData();
+      else fetchTenantData();
+    };
+
+    window.addEventListener('dormitory-refresh-page', handleRealtimeUpdate);
+    window.addEventListener('dormitory-realtime-notification', handleRealtimeUpdate);
+
+    return () => {
+      window.removeEventListener('dormitory-refresh-page', handleRealtimeUpdate);
+      window.removeEventListener('dormitory-realtime-notification', handleRealtimeUpdate);
+    };
+  }, [isAdmin, fetchAdminData, fetchTenantData]);
+
   const handleRenewalSubmit = async (event) => {
     event.preventDefault();
     setSubmitting(true);

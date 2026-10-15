@@ -60,6 +60,7 @@ const { verifyToken, authorizeRoles } = require('../middleware/authMiddleware');
  *       200: { description: "Contract status updated" }
  */
 router.get('/', verifyToken, authorizeRoles('admin'), contractController.getContracts);
+router.get('/:id', verifyToken, contractController.getContractById);
 router.post('/', verifyToken, authorizeRoles('admin'), contractController.createContract);
 
 // เพิ่ม Route PUT สำหรับอัปเดตสถานะสัญญาเช่า

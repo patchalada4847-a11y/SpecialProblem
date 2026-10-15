@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import api from '../api/axios';
 import useToast from '../components/useToast';
 import Pagination from '../components/Pagination';
+import ContractDocumentModal from '../components/ContractDocumentModal';
 
 export default function TenantDashboard() {
   const notify = useToast();
@@ -14,6 +15,7 @@ export default function TenantDashboard() {
   const [billTotal, setBillTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showContractModal, setShowContractModal] = useState(false);
   const [editForm, setEditForm] = useState({ first_name: '', last_name: '', phone: '' });
 
   // จัดการอัปโหลดสลิป
@@ -46,6 +48,21 @@ export default function TenantDashboard() {
 
   useEffect(() => {
     Promise.resolve().then(fetchData);
+  }, [fetchData]);
+
+  // รับ Event แจ้งเตือนแบบ Real-time และการคลิกจากการแจ้งเตือนเพื่อรีเฟรชข้อมูลห้องพักและบิลของผู้เช่าทันที
+  useEffect(() => {
+    const handleRealtimeUpdate = () => {
+      fetchData();
+    };
+
+    window.addEventListener('dormitory-refresh-page', handleRealtimeUpdate);
+    window.addEventListener('dormitory-realtime-notification', handleRealtimeUpdate);
+
+    return () => {
+      window.removeEventListener('dormitory-refresh-page', handleRealtimeUpdate);
+      window.removeEventListener('dormitory-realtime-notification', handleRealtimeUpdate);
+    };
   }, [fetchData]);
 
   const handleUpdateProfile = async (e) => {
@@ -120,23 +137,45 @@ export default function TenantDashboard() {
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-          <h2 className="text-lg font-semibold text-gray-800 mb-4 flex items-center gap-2">
-            <Building className="text-indigo-600" size={20} /> สัญญาเช่าห้องพัก
-          </h2>
-          {profile?.room_number ? (
-            <div className="space-y-2 text-sm text-gray-600">
-              <p><span className="font-semibold text-gray-700">ห้องพัก:</span> <span className="text-indigo-600 font-bold">ห้อง {profile.room_number}</span> (ชั้น {profile.floor})</p>
-              <p><span className="font-semibold text-gray-700">ประเภทห้อง:</span> {profile.room_type}</p>
-              <p><span className="font-semibold text-gray-700">ค่าเช่า:</span> ฿{Number(profile.base_price || 0).toLocaleString()} / เดือน</p>
-              <p><span className="font-semibold text-gray-700">เงินประกัน:</span> ฿{Number(profile.deposit || 0).toLocaleString()}</p>
-              <p><span className="font-semibold text-gray-700">วันเริ่มสัญญา:</span> {profile.start_date ? new Date(profile.start_date).toLocaleDateString('th-TH') : '-'}</p>
-              <p><span className="font-semibold text-gray-700">วันสิ้นสุดสัญญา:</span> {profile.end_date ? new Date(profile.end_date).toLocaleDateString('th-TH') : '-'}</p>
-              <p><span className="font-semibold text-gray-700">สถานะสัญญา:</span> {profile.contract_status || '-'}</p>
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
+          <div>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+              <h2 className="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                <Building className="text-indigo-600" size={20} /> สัญญาเช่าห้องพัก
+              </h2>
+              {profile?.contract_id && (
+                <div className="flex items-center gap-2">
+                  <button 
+                    type="button"
+                    onClick={() => setShowContractModal(true)} 
+                    className="text-xs bg-teal-50 hover:bg-teal-100 text-teal-700 font-semibold px-2.5 py-1 rounded-md flex items-center gap-1 transition cursor-pointer"
+                  >
+                    <FileText size={13} /> ดูสัญญาเช่า
+                  </button>
+                  <Link 
+                    to="/my-contract" 
+                    className="text-xs text-indigo-600 hover:underline font-medium"
+                  >
+                    หน้าสัญญาเต็ม
+                  </Link>
+                </div>
+              )}
             </div>
-          ) : (
-            <p className="text-sm text-gray-400">ยังไม่มีสัญญาเช่าที่ใช้งานอยู่</p>
-          )}
+            {profile?.room_number ? (
+              <div className="space-y-2 text-sm text-gray-600">
+                <p><span className="font-semibold text-gray-700">ห้องพัก:</span> <span className="text-indigo-600 font-bold">ห้อง {profile.room_number}</span> (ชั้น {profile.floor})</p>
+                <p><span className="font-semibold text-gray-700">ประเภทห้อง:</span> {profile.room_type}</p>
+                <p><span className="font-semibold text-gray-700">ค่าเช่า:</span> ฿{Number(profile.base_price || 0).toLocaleString()} / เดือน</p>
+                <p><span className="font-semibold text-gray-700">เงินประกัน:</span> ฿{Number(profile.deposit || 0).toLocaleString()}</p>
+                <p><span className="font-semibold text-gray-700">วันเริ่มสัญญา:</span> {profile.start_date ? new Date(profile.start_date).toLocaleDateString('th-TH') : '-'}</p>
+                <p><span className="font-semibold text-gray-700">วันสิ้นสุดสัญญา:</span> {profile.end_date ? new Date(profile.end_date).toLocaleDateString('th-TH') : '-'}</p>
+                <p><span className="font-semibold text-gray-700">สถานะสัญญา:</span> {profile.contract_status || '-'}</p>
+                <p><span className="font-semibold text-gray-700">เอกสารสัญญา:</span> {profile.has_kyc_document ? <span className="text-emerald-700 font-medium">แนบไฟล์ตอนสมัครแล้ว</span> : <span className="text-amber-600 font-medium">ยังไม่มีไฟล์แนบ</span>}</p>
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400">ยังไม่มีสัญญาเช่าที่ใช้งานอยู่</p>
+            )}
+          </div>
         </div>
       </div>
 
@@ -344,6 +383,34 @@ export default function TenantDashboard() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* โมดอลแสดงสัญญาเช่าฉบับเต็ม พร้อมพิมพ์/ดาวน์โหลด */}
+      {showContractModal && profile?.contract && (
+        <ContractDocumentModal
+          contract={{
+            ...profile.contract,
+            tenant_id: profile.tenant_id || profile.user_id,
+            user_id: profile.user_id,
+            first_name: profile.first_name,
+            last_name: profile.last_name,
+            phone: profile.phone,
+            username: profile.username,
+            room_number: profile.room_number,
+            floor: profile.floor,
+            room_type: profile.room_type,
+            base_price: profile.base_price,
+            dormitory_name: profile.dormitory_settings?.dormitory_name,
+            dormitory_address: profile.dormitory_settings?.address,
+            contact_phone: profile.dormitory_settings?.contact_phone,
+            water_rate: profile.dormitory_settings?.water_rate,
+            electricity_rate: profile.dormitory_settings?.electricity_rate,
+            application_document: profile.application_document,
+            has_kyc_document: profile.has_kyc_document,
+          }}
+          documents={profile.documents || []}
+          onClose={() => setShowContractModal(false)}
+        />
       )}
     </div>
   );

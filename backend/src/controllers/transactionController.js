@@ -1,4 +1,5 @@
 const db = require('../config/db');
+const { createAndSendNotification } = require('../config/socket');
 
 function isValidDate(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -156,8 +157,10 @@ exports.payBill = async (req, res) => {
   try {
     const transaction = await db.withTransaction(async (client) => {
       const billResult = await client.query(
-        `SELECT bill_id, month, year, total_amount, payment_status
-         FROM t_bills WHERE bill_id = $1 FOR UPDATE`,
+        `SELECT b.bill_id, b.month, b.year, b.total_amount, b.payment_status, c.tenant_id
+         FROM t_bills b
+         JOIN m_contracts c ON c.contract_id = b.contract_id
+         WHERE b.bill_id = $1 FOR UPDATE OF b`,
         [billId]
       );
       if (billResult.rows.length === 0) return { missing: true };
@@ -187,12 +190,22 @@ exports.payBill = async (req, res) => {
           bill.bill_id
         ]
       );
-      return { transaction: result.rows[0] };
+      return { transaction: result.rows[0], bill, tenantId: bill.tenant_id };
     });
 
     if (transaction.missing) return res.status(404).json({ message: 'Bill not found' });
     if (transaction.alreadyPaid) return res.status(400).json({ message: 'This bill has already been paid' });
     if (transaction.invalidStatus) return res.status(400).json({ error: 'ไม่สามารถยืนยันการชำระบิลในสถานะนี้ได้' });
+
+    if (transaction.tenantId) {
+      createAndSendNotification({
+        userId: transaction.tenantId,
+        title: 'การชำระเงินเสร็จสมบูรณ์',
+        message: `บิลประจำงวด ${transaction.bill.month}/${transaction.bill.year} ยอด ฿${Number(transaction.bill.total_amount).toLocaleString()} ได้รับการบันทึกการชำระเงินเรียบร้อยแล้ว`,
+        type: 'success',
+        link: '/my-dashboard'
+      }).catch((err) => console.error('[Socket] Tenant payment notification error:', err));
+    }
 
     res.status(200).json({
       message: 'Bill paid successfully',

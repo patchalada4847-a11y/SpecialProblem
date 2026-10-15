@@ -35,6 +35,56 @@ exports.getContracts = async (req, res) => {
   }
 };
 
+exports.getContractById = async (req, res) => {
+  const contractId = Number(req.params.id);
+  if (!Number.isInteger(contractId) || contractId < 1) {
+    return res.status(400).json({ error: 'รหัสสัญญาไม่ถูกต้อง' });
+  }
+
+  try {
+    const query = `
+      SELECT 
+        c.contract_id, c.tenant_id, c.room_id, c.start_date, c.end_date, c.deposit, c.status,
+        r.room_number, r.floor, r.room_type, r.base_price,
+        u.first_name, u.last_name, u.phone, u.username,
+        u.kyc_document AS application_document, (u.kyc_document IS NOT NULL) AS has_kyc_document
+      FROM m_contracts c
+      JOIN m_rooms r ON c.room_id = r.room_id
+      JOIN m_users u ON c.tenant_id = u.user_id
+      WHERE c.contract_id = $1
+    `;
+    const [contractRes, settingsRes] = await Promise.all([
+      db.query(query, [contractId]),
+      db.query('SELECT dormitory_name, dormitory_address, contact_phone, water_rate, electric_rate, promptpay_number, payment_instructions FROM m_billing_settings LIMIT 1')
+    ]);
+
+    if (!contractRes.rows.length) {
+      return res.status(404).json({ error: 'ไม่พบสัญญาเช่า' });
+    }
+
+    const contract = contractRes.rows[0];
+    const settings = settingsRes.rows[0] || {};
+
+    // ความปลอดภัย: ถ้าเป็นผู้เช่า ต้องเป็นสัญญาของตัวเองเท่านั้น
+    if (req.user?.role === 'tenant' && Number(req.user?.user_id || req.user?.id) !== Number(contract.tenant_id)) {
+      return res.status(403).json({ error: 'คุณไม่มีสิทธิ์ดูสัญญาของผู้อื่น' });
+    }
+
+    res.json({
+      ...contract,
+      dormitory_name: settings.dormitory_name || 'ระบบจัดการหอพัก',
+      dormitory_address: settings.dormitory_address || '',
+      contact_phone: settings.contact_phone || '',
+      water_rate: settings.water_rate,
+      electric_rate: settings.electric_rate,
+      settings
+    });
+  } catch (err) {
+    console.error('Error fetching contract by id:', err);
+    res.status(500).json({ error: err.message });
+  }
+};
+
 exports.createContract = async (req, res) => {
   const { room_id, tenant_id, start_date, end_date, deposit } = req.body;
   const parsedRoomId = Number(room_id);

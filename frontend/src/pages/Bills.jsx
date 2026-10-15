@@ -159,6 +159,22 @@ export default function Bills() {
     Promise.resolve().then(fetchReferenceData);
   }, [fetchReferenceData]);
 
+  // รับ Event แจ้งเตือนแบบ Real-time และการคลิกจากการแจ้งเตือนเพื่อรีเฟรชตารางบิลทันที
+  useEffect(() => {
+    const handleRealtimeUpdate = () => {
+      fetchData();
+      fetchReferenceData();
+    };
+
+    window.addEventListener('dormitory-refresh-page', handleRealtimeUpdate);
+    window.addEventListener('dormitory-realtime-notification', handleRealtimeUpdate);
+
+    return () => {
+      window.removeEventListener('dormitory-refresh-page', handleRealtimeUpdate);
+      window.removeEventListener('dormitory-realtime-notification', handleRealtimeUpdate);
+    };
+  }, [fetchData, fetchReferenceData]);
+
   // คำนวณสรุปหน่วยและราคาทันที
   const waterUnits = Math.max(0, Number(form.water_new_meter || 0) - Number(form.water_old_meter || 0));
   const waterCost = waterUnits * Number(form.water_rate || 0);

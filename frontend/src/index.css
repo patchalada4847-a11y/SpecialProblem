@@ -256,8 +256,8 @@ body [class~="hover:text-indigo-400"]:hover {
 
 .toast-stack {
   position: fixed;
-  z-index: 1000;
-  top: 20px;
+  z-index: 9999;
+  top: 76px;
   right: 20px;
   display: grid;
   width: min(360px, calc(100vw - 32px));
@@ -353,51 +353,96 @@ body [class~="hover:text-indigo-400"]:hover {
 }
 
 @page {
-  size: A4;
-  margin: 16mm;
+  size: A4 portrait;
+  margin: 10mm 12mm;
 }
 
 @media print {
+  /* Reset html, body, and root so Chromium pagination works without clipping or blank pages */
   html,
-  body,
-  #root {
-    min-height: 0;
-    background: #fff !important;
+  body {
+    height: auto !important;
+    min-height: 100% !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    overflow: visible !important;
   }
 
+  #root {
+    position: static !important;
+    isolation: auto !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+    background: transparent !important;
+  }
+
+  /* Reset outer layout containers (Layout.jsx) */
+  .flex.h-screen,
+  div:has(> main),
+  .overflow-hidden:has(> main),
+  .overflow-hidden {
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    overflow: visible !important;
+    display: block !important;
+    position: static !important;
+  }
+
+  /* Hide app navigation, sidebar, header, action buttons, grip bar, toast stack */
   aside,
+  header,
+  nav,
   .bill-document-actions,
-  .toast-stack {
+  .toast-stack,
+  .print-hidden,
+  .no-print,
+  [data-print-hidden="true"],
+  .sidebar-drag-handle {
     display: none !important;
   }
 
   main {
+    height: auto !important;
     overflow: visible !important;
     padding: 0 !important;
+    margin: 0 !important;
     border: 0 !important;
+    display: block !important;
+    background: #ffffff !important;
   }
 
   main [class~="bg-white"] {
     border: 0 !important;
-    background: #fff !important;
+    background: #ffffff !important;
     box-shadow: none !important;
     backdrop-filter: none !important;
   }
 
-  .bill-document-wrap {
-    max-width: none !important;
+  .bill-document-wrap,
+  .contract-document-wrap {
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
   }
 
-  .bill-document {
-    max-width: none !important;
+  .bill-document,
+  .contract-document {
+    max-width: 100% !important;
     padding: 0 !important;
+    margin: 0 !important;
     box-shadow: none !important;
+    border: none !important;
+    background: #ffffff !important;
+    color: #0f172a !important;
+    page-break-inside: avoid;
   }
 }
 
 @media (max-width: 767px) {
   .toast-stack {
-    top: 12px;
+    top: 72px;
     right: 12px;
     width: calc(100vw - 24px);
   }

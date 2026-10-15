@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const { parsePagination, respondWithPagination } = require('../utils/pagination');
+const { createAndSendNotification } = require('../config/socket');
 
 const ticketStatuses = ['open', 'in_progress', 'resolved', 'closed'];
 const ticketPriorities = ['low', 'normal', 'high', 'urgent'];
@@ -47,6 +48,25 @@ exports.createTicket = async (req, res) => {
        RETURNING ticket_id, category, subject, description, priority, status, created_at`,
       [userId, category.trim(), subject.trim(), description.trim(), priority]
     );
+
+    // ดึงเลขห้องพักของผู้เช่าเพื่อแจ้งเตือนแอดมิน
+    db.query(
+      `SELECT r.room_number FROM m_contracts c
+       JOIN m_rooms r ON r.room_id = c.room_id
+       WHERE c.tenant_id = $1 AND c.status = 'active'
+       LIMIT 1`,
+      [userId]
+    ).then((roomRes) => {
+      const roomNumber = roomRes.rows[0]?.room_number || '';
+      return createAndSendNotification({
+        targetRole: 'admin',
+        title: 'มีคำร้องแจ้งซ่อมใหม่',
+        message: `${roomNumber ? `ห้อง ${roomNumber}: ` : ''}${subject.trim()}`,
+        type: 'warning',
+        link: '/tenant-services'
+      });
+    }).catch((err) => console.error('[Socket] Failed to notify admins about new ticket:', err));
+
     res.status(201).json({ message: 'เปิดเคสแจ้งปัญหาแล้ว', ticket: result.rows[0] });
   } catch (error) {
     console.error('Error creating maintenance ticket:', error);
@@ -126,11 +146,28 @@ exports.updateTicket = async (req, res) => {
            updated_at = CURRENT_TIMESTAMP,
            closed_at = CASE WHEN $1 = 'closed' THEN CURRENT_TIMESTAMP WHEN $1 <> 'closed' THEN NULL ELSE closed_at END
        WHERE ticket_id = $3
-       RETURNING ticket_id, status, admin_response, updated_at, closed_at`,
+       RETURNING ticket_id, tenant_id, subject, status, admin_response, updated_at, closed_at`,
       [status, admin_response.trim(), ticketId]
     );
     if (!result.rows.length) return res.status(404).json({ error: 'ไม่พบเคสแจ้งปัญหา' });
-    res.json({ message: 'อัปเดตเคสเรียบร้อยแล้ว', ticket: result.rows[0] });
+
+    const updated = result.rows[0];
+    const statusLabels = {
+      open: 'รอดำเนินการ',
+      in_progress: 'กำลังดำเนินการ',
+      resolved: 'แก้ไขเรียบร้อยแล้ว',
+      closed: 'ปิดเคสแล้ว'
+    };
+
+    createAndSendNotification({
+      userId: updated.tenant_id,
+      title: 'อัปเดตการแจ้งซ่อม/ปัญหา',
+      message: `เคส "${updated.subject}" มีการอัปเดตสถานะเป็น: ${statusLabels[status] || status}`,
+      type: status === 'resolved' ? 'success' : 'info',
+      link: '/tenant-services'
+    }).catch((err) => console.error('[Socket] Failed to notify tenant:', err));
+
+    res.json({ message: 'อัปเดตเคสเรียบร้อยแล้ว', ticket: updated });
   } catch (error) {
     console.error('Error updating maintenance ticket:', error);
     res.status(500).json({ error: 'ไม่สามารถอัปเดตเคสได้' });

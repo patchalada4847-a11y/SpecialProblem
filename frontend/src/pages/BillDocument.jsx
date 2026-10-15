@@ -3,6 +3,7 @@ import { ArrowLeft, Printer } from 'lucide-react';
 import { Link, useParams } from 'react-router-dom';
 import api from '../api/axios';
 import useToast from '../components/useToast';
+import { printElement } from '../utils/printHelper';
 
 const money = (value) => Number(value || 0).toLocaleString('th-TH', {
   minimumFractionDigits: 2,
@@ -97,14 +98,14 @@ export default function BillDocument() {
         </Link>
         <button
           type="button"
-          onClick={() => window.print()}
-          className="inline-flex items-center gap-2 bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+          onClick={() => printElement('printable-bill-document', { title: `${isReceipt ? 'ใบเสร็จรับเงิน' : 'ใบแจ้งหนี้'}-BILL-${String(bill.bill_id).padStart(6, '0')}` })}
+          className="inline-flex items-center gap-2 bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 cursor-pointer shadow-xs transition"
         >
           <Printer size={17} /> พิมพ์ / บันทึก PDF
         </button>
       </div>
 
-      <article className="bill-document bg-white p-8 shadow-sm sm:p-12">
+      <article id="printable-bill-document" className="bill-document bg-white p-8 shadow-sm sm:p-12">
         <header className="flex flex-wrap items-start justify-between gap-6 border-b-2 border-teal-700 pb-6">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{bill.dormitory_name || 'ระบบจัดการหอพัก'}</h1>

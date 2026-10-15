@@ -5,6 +5,7 @@ import useToast from '../components/useToast';
 import Pagination from '../components/Pagination';
 import ContractAssignmentModal from '../components/ContractAssignmentModal';
 import TenantDocumentsModal from '../components/TenantDocumentsModal';
+import ContractDocumentModal from '../components/ContractDocumentModal';
 
 const oneYearAfter = (value) => {
   if (!value) return '';
@@ -26,6 +27,8 @@ export default function Tenants() {
   const [editingContract, setEditingContract] = useState(null);
   const [tenantDocuments, setTenantDocuments] = useState(null);
   const [loadingDocuments, setLoadingDocuments] = useState(false);
+  const [selectedContractDoc, setSelectedContractDoc] = useState(null);
+  const [contractDocuments, setContractDocuments] = useState([]);
   const [search, setSearch] = useState('');
   const [contractPage, setContractPage] = useState(1);
   const [directoryPage, setDirectoryPage] = useState(1);
@@ -91,6 +94,21 @@ export default function Tenants() {
       notify(err.response?.data?.error || 'โหลดเอกสารผู้เช่าไม่สำเร็จ', 'error');
     } finally {
       setLoadingDocuments(false);
+    }
+  };
+
+  const handleViewContract = async (contractItem) => {
+    try {
+      const [contractRes, docsRes] = await Promise.all([
+        api.get(`/contracts/${contractItem.contract_id}`),
+        contractItem.tenant_id
+          ? api.get(`/tenant/admin/tenants/${contractItem.tenant_id}/documents`).catch(() => ({ data: { documents: [] } }))
+          : Promise.resolve({ data: { documents: [] } })
+      ]);
+      setSelectedContractDoc(contractRes.data);
+      setContractDocuments(docsRes.data?.documents || []);
+    } catch (err) {
+      notify(err.response?.data?.error || 'ไม่สามารถโหลดสัญญาเช่าได้', 'error');
     }
   };
 
@@ -312,6 +330,15 @@ export default function Tenants() {
                     </td>
                     <td className="p-3">
                       <div className="flex justify-start gap-1">
+                        <button
+                          type="button"
+                          onClick={() => handleViewContract(c)}
+                          className="p-2 text-teal-700 hover:bg-teal-50 rounded-lg"
+                          title="ดูสัญญาเช่าฉบับเต็ม / พิมพ์"
+                          aria-label={`ดูสัญญา ห้อง ${c.room_number}`}
+                        >
+                          <FileText size={16} />
+                        </button>
                         {c.status === 'active' && (
                           <>
                             <button
@@ -373,6 +400,14 @@ export default function Tenants() {
           initialTenant={assignmentTenant}
           onClose={() => setShowModal(false)}
           onAssigned={fetchData}
+        />
+      )}
+
+      {selectedContractDoc && (
+        <ContractDocumentModal
+          contract={selectedContractDoc}
+          documents={contractDocuments}
+          onClose={() => setSelectedContractDoc(null)}
         />
       )}
     </div>

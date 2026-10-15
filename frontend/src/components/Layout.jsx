@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NavLink, useNavigate, Outlet } from 'react-router-dom';
-import { LayoutDashboard, UsersRound, DoorOpen, ReceiptText, LogOut, House, BadgeCheck, SlidersHorizontal, ChartNoAxesCombined, UserRound, Camera, Wrench } from 'lucide-react';
+import { LayoutDashboard, UsersRound, DoorOpen, ReceiptText, LogOut, House, BadgeCheck, SlidersHorizontal, ChartNoAxesCombined, UserRound, Camera, Wrench, Menu, X, ChevronLeft, ChevronRight, FileText } from 'lucide-react';
 import api from '../api/axios';
 import useToast from './useToast';
 import AppInfo from './AppInfo';
+import NotificationBell from './NotificationBell';
 
 export default function Layout() {
   const navigate = useNavigate();
@@ -12,6 +13,111 @@ export default function Layout() {
   const [profile, setProfile] = useState(null);
   const [dormitoryName, setDormitoryName] = useState('ระบบจัดการหอพัก');
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('sidebar_open');
+      if (saved !== null) return saved === 'true';
+      return window.innerWidth >= 768;
+    }
+    return true;
+  });
+
+  const toggleSidebar = () => {
+    setSidebarOpen((prev) => {
+      const next = !prev;
+      localStorage.setItem('sidebar_open', String(next));
+      return next;
+    });
+  };
+
+  const dragStartX = useRef(null);
+  const isDragging = useRef(false);
+
+  // รองรับการลากด้วยเมาส์ (Desktop)
+  const handleMouseDown = (e) => {
+    if (e.button !== 0) return;
+    dragStartX.current = e.clientX;
+    isDragging.current = false;
+
+    const onMouseMove = (moveEvent) => {
+      const diffX = moveEvent.clientX - dragStartX.current;
+      if (Math.abs(diffX) > 6) {
+        isDragging.current = true;
+      }
+    };
+
+    const onMouseUp = (upEvent) => {
+      window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('mouseup', onMouseUp);
+
+      if (isDragging.current && dragStartX.current !== null) {
+        const diffX = upEvent.clientX - dragStartX.current;
+        if (sidebarOpen && diffX < -25) {
+          setSidebarOpen(false);
+          localStorage.setItem('sidebar_open', 'false');
+        } else if (!sidebarOpen && diffX > 25) {
+          setSidebarOpen(true);
+          localStorage.setItem('sidebar_open', 'true');
+        }
+      }
+      setTimeout(() => {
+        isDragging.current = false;
+        dragStartX.current = null;
+      }, 50);
+    };
+
+    window.addEventListener('mousemove', onMouseMove);
+    window.addEventListener('mouseup', onMouseUp);
+  };
+
+  // รองรับการลากด้วยการสัมผัส (Mobile / Tablet Touch)
+  const handleTouchStart = (e) => {
+    const touch = e.touches[0];
+    if (!touch) return;
+    dragStartX.current = touch.clientX;
+    isDragging.current = false;
+
+    const onTouchMove = (moveEvent) => {
+      const currentTouch = moveEvent.touches[0];
+      if (!currentTouch) return;
+      const diffX = currentTouch.clientX - dragStartX.current;
+      if (Math.abs(diffX) > 6) {
+        isDragging.current = true;
+      }
+    };
+
+    const onTouchEnd = (endEvent) => {
+      window.removeEventListener('touchmove', onTouchMove);
+      window.removeEventListener('touchend', onTouchEnd);
+
+      if (isDragging.current && dragStartX.current !== null) {
+        const changedTouch = endEvent.changedTouches[0];
+        if (changedTouch) {
+          const diffX = changedTouch.clientX - dragStartX.current;
+          if (sidebarOpen && diffX < -25) {
+            setSidebarOpen(false);
+            localStorage.setItem('sidebar_open', 'false');
+          } else if (!sidebarOpen && diffX > 25) {
+            setSidebarOpen(true);
+            localStorage.setItem('sidebar_open', 'true');
+          }
+        }
+      }
+      setTimeout(() => {
+        isDragging.current = false;
+        dragStartX.current = null;
+      }, 50);
+    };
+
+    window.addEventListener('touchmove', onTouchMove, { passive: true });
+    window.addEventListener('touchend', onTouchEnd);
+  };
+
+  const handleHandleClick = () => {
+    if (!isDragging.current) {
+      toggleSidebar();
+    }
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -69,6 +175,7 @@ export default function Layout() {
   const handleLogout = () => {
     localStorage.removeItem('token');
     localStorage.removeItem('role');
+    window.dispatchEvent(new Event('auth-changed'));
     navigate('/login');
   };
 
@@ -87,6 +194,7 @@ export default function Layout() {
   // เมนูของ ผู้เช่า (Tenant)
   const tenantMenuItems = [
     { name: 'ข้อมูลห้องพักและบิล', icon: House, path: '/my-dashboard' },
+    { name: 'สัญญาเช่าห้องพัก', icon: FileText, path: '/my-contract' },
     { name: 'ต่อสัญญา / แจ้งปัญหา', icon: Wrench, path: '/tenant-services' },
   ];
 
@@ -94,65 +202,162 @@ export default function Layout() {
   const menuItems = role === 'admin' ? adminMenuItems : tenantMenuItems;
 
   return (
-    <div className="flex h-screen bg-transparent text-slate-800">
-      {/* Sidebar Navigation */}
-      <aside className="w-64 text-white flex flex-col justify-between">
-        <div>
-          <div className="brand-panel flex items-center gap-3 border-b border-white/20 p-6">
-            <label className="profile-photo-picker" title="เปลี่ยนรูปโปรไฟล์">
-              {profile?.profile_image ? (
-                <img src={profile.profile_image} alt="รูปโปรไฟล์" className="brand-image profile-avatar" />
-              ) : (
-                <span className="brand-image profile-avatar profile-avatar-placeholder">
-                  <UserRound size={24} />
-                </span>
-              )}
-              <span className="profile-photo-camera"><Camera size={12} /></span>
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                onChange={handleProfilePhotoChange}
-                disabled={uploadingPhoto}
-                className="sr-only"
-                aria-label="เปลี่ยนรูปโปรไฟล์"
-              />
-            </label>
-            <div>
-              <span className="block text-xs font-semibold uppercase tracking-[0.18em] text-teal-100">Residence</span>
-              <span className="block max-w-40 truncate font-semibold tracking-wide text-white" title={dormitoryName}>{dormitoryName}</span>
-              {profile && <span className="block truncate text-xs text-slate-500">{profile.first_name} {profile.last_name}</span>}
-            </div>
-          </div>
-          <nav className="space-y-1 p-3">
-            {menuItems.map((item) => (
-              <NavLink
-                key={item.path}
-                to={item.path}
-                end={item.path === '/dashboard'}
-                className="flex items-center gap-3 px-3 py-3 text-sm"
+    <div className="flex h-screen bg-transparent text-slate-800 relative">
+      {/* Mobile Backdrop Overlay เมื่อเปิด Sidebar บนจอเล็ก */}
+      {sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 z-40 bg-slate-900/40 backdrop-blur-xs transition-opacity md:hidden"
+          aria-hidden="true"
+        />
+      )}
+
+      {/* Sidebar Navigation (เปิด/ปิด ได้) */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex flex-col justify-between text-white transition-all duration-300 ease-in-out md:static md:z-auto ${
+          sidebarOpen
+            ? 'w-64 translate-x-0 opacity-100'
+            : '-translate-x-full md:translate-x-0 md:w-0 md:min-w-0 md:!border-r-0 md:opacity-0 md:pointer-events-none md:overflow-hidden'
+        }`}
+      >
+        <div className="w-64 flex flex-col justify-between h-full shrink-0">
+          <div>
+            <div className="brand-panel flex items-center justify-between border-b border-white/20 p-6">
+              <div className="flex items-center gap-3 min-w-0">
+                <label className="profile-photo-picker shrink-0" title="เปลี่ยนรูปโปรไฟล์">
+                  {profile?.profile_image ? (
+                    <img src={profile.profile_image} alt="รูปโปรไฟล์" className="brand-image profile-avatar" />
+                  ) : (
+                    <span className="brand-image profile-avatar profile-avatar-placeholder">
+                      <UserRound size={24} />
+                    </span>
+                  )}
+                  <span className="profile-photo-camera"><Camera size={12} /></span>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={handleProfilePhotoChange}
+                    disabled={uploadingPhoto}
+                    className="sr-only"
+                    aria-label="เปลี่ยนรูปโปรไฟล์"
+                  />
+                </label>
+                <div className="min-w-0 flex-1">
+                  <span className="block text-xs font-semibold uppercase tracking-[0.18em] text-teal-100">Residence</span>
+                  <span className="block max-w-36 truncate font-semibold tracking-wide text-white" title={dormitoryName}>{dormitoryName}</span>
+                  {profile && <span className="block truncate text-xs text-slate-500">{profile.first_name} {profile.last_name}</span>}
+                </div>
+              </div>
+
+              {/* ปุ่มปิด Sidebar สำหรับจอมือถือ */}
+              <button
+                type="button"
+                onClick={() => setSidebarOpen(false)}
+                className="md:hidden shrink-0 rounded p-1.5 text-slate-500 hover:bg-slate-200/50 hover:text-slate-800 cursor-pointer"
+                aria-label="ปิดเมนู"
               >
-                <item.icon size={19} strokeWidth={1.8} />
-                <span>{item.name}</span>
-              </NavLink>
-            ))}
-          </nav>
-        </div>
-        <div className="border-t border-white/20 p-4">
-          <AppInfo className="mb-2 px-3" />
-          <button
-            onClick={handleLogout}
-            className="flex w-full cursor-pointer items-center gap-3 px-3 py-3 text-sm text-rose-200 transition hover:bg-rose-400/15 hover:text-white"
-          >
-            <LogOut size={19} strokeWidth={1.8} />
-            <span>ออกจากระบบ</span>
-          </button>
+                <X size={18} />
+              </button>
+            </div>
+
+            <nav className="space-y-1 p-3">
+              {menuItems.map((item) => (
+                <NavLink
+                  key={item.path}
+                  to={item.path}
+                  end={item.path === '/dashboard'}
+                  onClick={() => {
+                    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+                      setSidebarOpen(false);
+                    }
+                  }}
+                  className="flex items-center gap-3 px-3 py-3 text-sm"
+                >
+                  <item.icon size={19} strokeWidth={1.8} />
+                  <span>{item.name}</span>
+                </NavLink>
+              ))}
+            </nav>
+          </div>
+
+          <div className="border-t border-white/20 p-4">
+            <AppInfo className="mb-2 px-3" />
+            <button
+              onClick={handleLogout}
+              className="flex w-full cursor-pointer items-center gap-3 px-3 py-3 text-sm text-rose-200 transition hover:bg-rose-400/15 hover:text-white"
+            >
+              <LogOut size={19} strokeWidth={1.8} />
+              <span>ออกจากระบบ</span>
+            </button>
+          </div>
         </div>
       </aside>
 
-      {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto p-5 md:p-8">
-        <Outlet />
-      </main>
+      {/* ตัวลาก/ปุ่มเปิดปิดขอบแนบบาร์ (Drag & Click Grip Handle on Sidebar Edge) */}
+      <div
+        className={`fixed md:absolute top-1/2 -translate-y-1/2 z-40 transition-all duration-300 ease-in-out ${
+          sidebarOpen ? 'left-64 -ml-2' : 'left-0'
+        }`}
+      >
+        <button
+          type="button"
+          onMouseDown={handleMouseDown}
+          onTouchStart={handleTouchStart}
+          onClick={handleHandleClick}
+          className="group flex flex-col items-center justify-center h-10 w-3.5 rounded-r-md border border-slate-300/80 bg-white/95 text-slate-400 shadow-sm backdrop-blur-xs transition hover:w-4.5 hover:border-teal-600 hover:bg-white hover:text-teal-700 hover:shadow-md focus:outline-none cursor-ew-resize select-none"
+          title={sidebarOpen ? 'คลิกหรือลากไปทางซ้ายเพื่อปิดแถบเมนู' : 'คลิกหรือลากไปทางขวาเพื่อเปิดแถบเมนู'}
+          aria-label={sidebarOpen ? 'ปิดแถบเมนู' : 'เปิดแถบเมนู'}
+        >
+          {/* ขีดๆ เล็กๆ (Grip indicator lines) พร้อมลูกศรบอกทิศทาง */}
+          <div className="flex flex-col items-center justify-center gap-0.5">
+            {sidebarOpen ? (
+              <ChevronLeft size={9} className="text-slate-400 group-hover:text-teal-600 transition" />
+            ) : (
+              <ChevronRight size={9} className="text-slate-400 group-hover:text-teal-600 transition" />
+            )}
+            <span className="h-1.5 w-0.5 rounded-full bg-slate-300 group-hover:bg-teal-600 transition"></span>
+            <span className="h-1.5 w-0.5 rounded-full bg-slate-400 group-hover:bg-teal-600 transition"></span>
+            <span className="h-1.5 w-0.5 rounded-full bg-slate-300 group-hover:bg-teal-600 transition"></span>
+          </div>
+        </button>
+      </div>
+
+      {/* Main Content Area with Top Navbar */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Top Navbar */}
+        <header className="relative z-30 h-16 shrink-0 px-4 sm:px-6 flex items-center justify-between border-b border-teal-900/10 bg-white/80 backdrop-blur-md shadow-xs">
+          <div className="flex items-center gap-3">
+            {/* ปุ่มเปิด/ปิด Sidebar (แนบบาร์) */}
+            <button
+              type="button"
+              onClick={toggleSidebar}
+              className="flex h-10 w-10 items-center justify-center rounded-lg border border-teal-800/15 bg-white/90 text-slate-700 shadow-xs transition hover:border-teal-700 hover:bg-white hover:text-teal-800 focus:outline-none cursor-pointer"
+              title={sidebarOpen ? 'ปิดแถบเมนู (Sidebar)' : 'เปิดแถบเมนู (Sidebar)'}
+              aria-label={sidebarOpen ? 'ปิดแถบเมนู (Sidebar)' : 'เปิดแถบเมนู (Sidebar)'}
+            >
+              <Menu size={20} />
+            </button>
+
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium uppercase tracking-wider text-teal-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-100">
+                {role === 'admin' ? 'ผู้ดูแลระบบ' : 'ผู้เช่า'}
+              </span>
+              <span className="text-slate-300">/</span>
+              <span className="text-sm font-semibold text-slate-800 truncate max-w-[170px] sm:max-w-xs" title={dormitoryName}>
+                {dormitoryName}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <NotificationBell />
+          </div>
+        </header>
+
+        <main className="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }

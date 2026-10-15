@@ -1,5 +1,6 @@
 const db = require('../config/db');
 const { parsePagination, respondWithPagination } = require('../utils/pagination');
+const { createAndSendNotification } = require('../config/socket');
 
 function isValidDate(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -249,7 +250,7 @@ exports.createBill = async (req, res) => {
 
     // ดึงค่าเช่าห้องตามสัญญา
     const contractQuery = `
-      SELECT c.contract_id, r.base_price
+      SELECT c.contract_id, c.tenant_id, r.room_number, r.base_price
       FROM m_contracts c 
       JOIN m_rooms r ON c.room_id = r.room_id 
       WHERE c.contract_id = $1 AND c.status = 'active';
@@ -296,9 +297,21 @@ exports.createBill = async (req, res) => {
       total_amount, due_date, JSON.stringify(parsedCharges), parsedWaterRate, parsedElectricRate
     ]);
 
+    const createdBill = result.rows[0];
+    const tenantId = contractResult.rows[0]?.tenant_id;
+    if (tenantId) {
+      createAndSendNotification({
+        userId: tenantId,
+        title: 'มีบิลค่าเช่าใหม่',
+        message: `บิลประจำงวด ${month}/${year} ยอดรวม ฿${Number(total_amount).toLocaleString()} ครบกำหนดชำระ ${due_date}`,
+        type: 'info',
+        link: '/my-dashboard'
+      }).catch((err) => console.error('[Socket] Failed to notify tenant about bill:', err));
+    }
+
     res.status(201).json({
       message: 'ออกบิลสำเร็จ',
-      bill: result.rows[0]
+      bill: createdBill
     });
   } catch (err) {
     console.error('Error in createBill:', err);

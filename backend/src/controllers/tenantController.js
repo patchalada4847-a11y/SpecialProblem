@@ -3,6 +3,7 @@ const { parsePagination, respondWithPagination } = require('../utils/pagination'
 const { validateUploadedDocument } = require('../utils/uploadedDocument');
 const { verifySlip } = require('../services/slipVerification');
 const { notifyAdmin } = require('../services/lineNotifications');
+const { createAndSendNotification } = require('../config/socket');
 
 // 1. ดึงข้อมูลส่วนตัว สัญญาเช่า และห้องพัก
 exports.getMyProfileAndContract = async (req, res) => {
@@ -21,6 +22,8 @@ exports.getMyProfileAndContract = async (req, res) => {
         u.last_name,
         u.phone,
         u.role,
+        (u.kyc_document IS NOT NULL) AS has_kyc_document,
+        u.kyc_document AS application_document,
         c.contract_id,
         c.start_date,
         c.end_date,
@@ -35,18 +38,98 @@ exports.getMyProfileAndContract = async (req, res) => {
       LEFT JOIN m_contracts c ON u.user_id = c.tenant_id
       LEFT JOIN m_rooms r ON c.room_id = r.room_id
       WHERE u.user_id = $1
-      ORDER BY c.contract_id DESC
+      ORDER BY (c.status = 'active') DESC, c.contract_id DESC
       LIMIT 1
     `;
 
-    const result = await db.query(query, [userId]);
-    const rows = result.rows || [];
+    const settingsQuery = `
+      SELECT dormitory_name, dormitory_address, contact_phone, water_rate, electric_rate, promptpay_number, payment_instructions
+      FROM m_billing_settings
+      LIMIT 1
+    `;
 
+    const contractsQuery = `
+      SELECT 
+        c.contract_id,
+        c.start_date,
+        c.end_date,
+        c.deposit,
+        c.status AS contract_status,
+        r.room_id,
+        r.room_number,
+        r.floor,
+        r.room_type,
+        r.base_price
+      FROM m_contracts c
+      JOIN m_rooms r ON c.room_id = r.room_id
+      WHERE c.tenant_id = $1
+      ORDER BY c.contract_id DESC
+    `;
+
+    const documentsQuery = `
+      SELECT rr.request_id, rr.contract_id, rr.proposed_end_date::text AS proposed_end_date,
+             (rr.agreement_document IS NOT NULL) AS has_agreement_document,
+             (rr.signed_document IS NOT NULL) AS has_signed_document,
+             rr.status, rr.submitted_at, r.room_number
+      FROM m_contract_renewal_requests rr
+      JOIN m_contracts c ON c.contract_id = rr.contract_id
+      JOIN m_rooms r ON r.room_id = c.room_id
+      WHERE rr.tenant_id = $1
+      ORDER BY rr.submitted_at DESC
+    `;
+
+    const [userRes, settingsRes, contractsRes, docsRes] = await Promise.all([
+      db.query(query, [userId]),
+      db.query(settingsQuery),
+      db.query(contractsQuery, [userId]),
+      db.query(documentsQuery, [userId])
+    ]);
+
+    const rows = userRes.rows || [];
     if (rows.length === 0) {
       return res.status(404).json({ message: 'ไม่พบข้อมูลผู้ใช้' });
     }
 
-    res.json(rows[0]);
+    const profile = rows[0];
+    const settings = settingsRes.rows[0] || {};
+    const contracts = contractsRes.rows || [];
+    const renewalDocs = docsRes.rows || [];
+
+    const documents = [
+      ...(profile.has_kyc_document ? [{
+        id: `application-${userId}`,
+        title: 'สัญญาเช่า / เอกสารแนบตอนสมัคร',
+        submitted_at: null,
+        status: 'application',
+        document: profile.application_document
+      }] : []),
+      ...renewalDocs.flatMap((req) => [
+        ...(req.has_agreement_document ? [{
+          id: `renewal-draft-${req.request_id}`,
+          title: `ร่างสัญญาต่ออายุ · ห้อง ${req.room_number}`,
+          submitted_at: req.submitted_at,
+          status: req.status
+        }] : []),
+        ...(req.has_signed_document ? [{
+          id: `renewal-signed-${req.request_id}`,
+          title: `สัญญาที่ผู้เช่าลงนามแล้ว · ห้อง ${req.room_number}`,
+          submitted_at: req.submitted_at,
+          status: req.status
+        }] : [])
+      ])
+    ];
+
+    res.json({
+      ...profile,
+      dormitory_name: settings.dormitory_name || 'ระบบจัดการหอพัก',
+      dormitory_address: settings.dormitory_address || '',
+      contact_phone: settings.contact_phone || '',
+      water_rate: settings.water_rate,
+      electric_rate: settings.electric_rate,
+      settings,
+      contracts,
+      documents
+    });
   } catch (error) {
     console.error('Error in getMyProfileAndContract:', error);
     res.status(500).json({ error: error.message });
@@ -175,6 +258,44 @@ exports.getTenantDocument = async (req, res) => {
     res.json({ document: result.rows[0].document });
   } catch (error) {
     console.error('Error fetching tenant document:', error);
+    res.status(500).json({ error: 'ไม่สามารถโหลดเอกสารได้' });
+  }
+};
+
+// ดึงเอกสารของตนเองสำหรับผู้เช่า (สัญญา/เอกสารแนบ)
+exports.getMyDocument = async (req, res) => {
+  const userId = req.user?.user_id || req.user?.id;
+  const documentId = String(req.params.document_id || '');
+  if (!userId) {
+    return res.status(401).json({ error: 'ไม่พบข้อมูลผู้ใช้' });
+  }
+
+  try {
+    let result;
+    if (documentId === `application-${userId}` || documentId === 'kyc') {
+      result = await db.query(
+        `SELECT kyc_document AS document FROM m_users
+         WHERE user_id = $1 AND role = 'tenant'`,
+        [userId]
+      );
+    } else {
+      const match = documentId.match(/^renewal-(draft|signed)-(\d+)$/);
+      if (!match) return res.status(400).json({ error: 'รหัสเอกสารไม่ถูกต้อง' });
+      const column = match[1] === 'draft' ? 'agreement_document' : 'signed_document';
+      result = await db.query(
+        `SELECT rr.${column} AS document
+         FROM m_contract_renewal_requests rr
+         WHERE rr.request_id = $1 AND rr.tenant_id = $2`,
+        [Number(match[2]), userId]
+      );
+    }
+
+    if (!result.rows.length || !result.rows[0].document) {
+      return res.status(404).json({ error: 'ไม่พบเอกสารที่ระบุ' });
+    }
+    res.json({ document: result.rows[0].document });
+  } catch (error) {
+    console.error('Error fetching my document:', error);
     res.status(500).json({ error: 'ไม่สามารถโหลดเอกสารได้' });
   }
 };
@@ -440,6 +561,26 @@ exports.uploadSlip = async (req, res) => {
     } catch (notificationError) {
       notificationWarning = 'บันทึกผลตรวจแล้ว แต่ส่ง LINE ไม่สำเร็จ';
       console.error('[LINE notification failed]', notificationError);
+    }
+
+    // 1. ส่งแจ้งเตือน Real-time บนเว็บหา Admin
+    createAndSendNotification({
+      targetRole: 'admin',
+      title: verification.status === 'verified' ? 'ผู้เช่าชำระค่าเช่าสำเร็จ' : 'มีการแนบสลิปชำระเงิน',
+      message: `ห้อง ${bill.room_number || '-'}: ${tenantName} ยอด ฿${formattedAmount} (${statusText})`,
+      type: verification.status === 'verified' ? 'success' : (verification.status === 'manual_review' ? 'warning' : 'error'),
+      link: '/bills'
+    }).catch((err) => console.error('[Socket] Failed to notify admin about payment:', err));
+
+    // 2. ถ้าตรวจผ่าน ให้ส่งแจ้งเตือนยืนยันไปยังผู้เช่าด้วย
+    if (verification.status === 'verified') {
+      createAndSendNotification({
+        userId: userId,
+        title: 'ชำระค่าเช่าสำเร็จแล้ว',
+        message: `บิลประจำงวด ${bill.month}/${bill.year} ยอด ฿${formattedAmount} ได้รับการบันทึกชำระเงินเรียบร้อยแล้ว`,
+        type: 'success',
+        link: '/my-dashboard'
+      }).catch((err) => console.error('[Socket] Failed to notify tenant about payment success:', err));
     }
 
     res.json({

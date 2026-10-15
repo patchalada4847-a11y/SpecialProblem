@@ -59,6 +59,7 @@ const { verifyToken, authorizeRoles } = require('../middleware/authMiddleware');
  */
 router.get('/me', verifyToken, tenantController.getMyProfileAndContract);
 router.get('/my-bills', verifyToken, tenantController.getMyBills);
+router.get('/my-documents/:document_id', verifyToken, authorizeRoles('tenant'), tenantController.getMyDocument);
 router.put('/update-profile', verifyToken, tenantController.updateMyProfile);
 router.put('/admin/tenants/:id', verifyToken, authorizeRoles('admin'), tenantController.updateTenantProfile);
 router.get('/admin/tenants/:id/documents', verifyToken, authorizeRoles('admin'), tenantController.getTenantDocuments);
